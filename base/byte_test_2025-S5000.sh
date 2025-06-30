@@ -1,9 +1,8 @@
 #!/bin/bash
 current_dir=$(pwd)
 timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
-log_file="${current_dir}/byte_${timestamp}.log"  # 关键修复1：绝对路径
+log_file="${current_dir}/byte_${timestamp}.log"
 
-# 统一日志函数（同时捕获stdout+stderr）
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$log_file"
 }
@@ -23,8 +22,6 @@ dirs=(
     "toolkits/main_memory-capacity"
 )
 
-
-# 主循环（增加错误捕获）
 for device in {0..7}; do
     export MUSA_VISIBLE_DEVICES=$device
     echo " "
@@ -36,12 +33,10 @@ for device in {0..7}; do
         log "进入目录：$target_dir"
         cd "$target_dir/mthreads/S5000" || { log "目录不存在：$target_dir"; exit 1; }
         
-        # 关键修复2：同时重定向stdout+stderr & 实时输出
         bash main.sh 2>&1 | tee -a "$log_file"
     done
 done
 
-# 修复末尾任务路径（标准化路径拼接）
 cd "${current_dir}/toolkits/interconnect-MPI_intraserver/mthreads/S5000/" || exit
 bash main.sh 2>&1 | tee -a "$log_file"
 
