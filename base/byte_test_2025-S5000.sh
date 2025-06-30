@@ -1,19 +1,16 @@
 #!/bin/bash
-
-# 获取当前目录
 current_dir=$(pwd)
-echo "当前目录为：$current_dir"
-
-# 获取当前时间戳
 timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
-echo "当前时间戳为：$timestamp"
+log_file="${current_dir}/byte_${timestamp}.log"  # 关键修复1：绝对路径
 
-# 创建包含时间戳的log文件
-log_file="byte_$timestamp.log"
-touch "$log_file"
-echo "已创建log文件：$log_file"
+# 统一日志函数（同时捕获stdout+stderr）
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$log_file"
+}
 
-# 定义需要执行的目录列表
+log "当前目录为：$current_dir"
+log "日志文件：$log_file"
+
 dirs=(
     "toolkits/computation-BF16"
     "toolkits/computation-FP16"
@@ -22,28 +19,33 @@ dirs=(
     "toolkits/computation-TF32"
     "toolkits/computation-FP8"
     "toolkits/computation-INT8"
-    # "toolkits/interconnect-MPI_intraserver"
-    # "toolkits/interconnect-P2P_intraserver"
     "toolkits/main_memory-bandwidth"
     "toolkits/main_memory-capacity"
 )
 
-# 循环设置环境变量并执行脚本
+
+# 主循环（增加错误捕获）
 for device in {0..7}; do
-    echo "set enviroment MUSA_VISIBLE_DEVICES=$device"
     export MUSA_VISIBLE_DEVICES=$device
+    echo " "
+    log "========== GPU INDEX=$device =========="
+    echo " "
+    
     for dir in "${dirs[@]}"; do
-        echo "run $current_dir/$dir"
-        cd "$current_dir/$dir" || exit 1  # 如果目录不存在则退出脚本
-        # echo "执行脚本：$dir/main.sh"
-        bash main.sh >> "$log_file"
+        target_dir="${current_dir}/${dir}"
+        log "进入目录：$target_dir"
+        cd "$target_dir/mthreads/S5000" || { log "目录不存在：$target_dir"; exit 1; }
+        
+        # 关键修复2：同时重定向stdout+stderr & 实时输出
+        bash main.sh 2>&1 | tee -a "$log_file"
     done
 done
 
-cd  "$current_dir"/toolkits/interconnect-MPI_intraserver
-bash main.sh >> "$log_file"
+# 修复末尾任务路径（标准化路径拼接）
+cd "${current_dir}/toolkits/interconnect-MPI_intraserver/mthreads/S5000/" || exit
+bash main.sh 2>&1 | tee -a "$log_file"
 
-cd  "$current_dir"/toolkits/interconnect-P2P_intraserver
-bash main.sh >> "$log_file"
+cd "${current_dir}/toolkits/interconnect-P2P_intraserver/mthreads/S5000/" || exit
+bash main.sh 2>&1 | tee -a "$log_file"
 
-echo "日志已写入 $log_file 文件中"
+log "所有任务完成！日志路径：$log_file"
