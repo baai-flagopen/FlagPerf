@@ -42,11 +42,6 @@ done
 unset MUSA_VISIBLE_DEVICES
 
 echo ""
-echo "[MPI Test]"
-cd "${current_dir}/toolkits/interconnect-MPI_intraserver/mthreads/S5000/" || exit
-bash main.sh 2>&1 | tee -a "$log_file"
-
-echo ""
 echo "[P2P Test]"
 cd "${current_dir}/toolkits/interconnect-P2P_intraserver/mthreads/S5000/" || exit
 bash main.sh 2>&1 | tee -a "$log_file"

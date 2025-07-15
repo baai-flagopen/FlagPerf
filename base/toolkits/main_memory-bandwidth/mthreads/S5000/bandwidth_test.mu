@@ -14,8 +14,8 @@ void checkMusaError(musaError_t err, const char* msg) {
     }
 }
 
-#define LOOP_NUM 8
-#define UNROLL_NUM 8
+#define LOOP_NUM 4
+#define UNROLL_NUM 4
 
 // read only
 __global__ void read_only(const float4* src, float4* dst) {
@@ -65,8 +65,8 @@ __global__ void write_only(float4 *dst) {
 }
 
 /* d2d */
-#define LOOP_NUM_D2D 4
-#define UNROLL_NUM_D2D 4
+#define LOOP_NUM_D2D 1
+#define UNROLL_NUM_D2D 1
 
 __global__ void global_bandwidth(float4 *dst, float4 *src) {
   int id, dist;
