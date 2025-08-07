@@ -9,3 +9,7 @@ inference/result/*
 base/result/*
 operation/result/*
 inference/onnxs/*
+
+.DS_Store
+.cursorindexingignore
+.specstory/
