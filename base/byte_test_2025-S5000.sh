@@ -2,7 +2,7 @@
 current_dir=$(pwd)
 timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
 log_file="${current_dir}/results/byte_${timestamp}.log"
-
+mkdir -p ${log_file}
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$log_file"
 }
