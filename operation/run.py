@@ -10,7 +10,7 @@ import sys
 import time
 import getpass
 import yaml
-from argparse import Namespace
+from argparse import Namespace, ArgumentParser
 import importlib
 import json
 import numpy as np
@@ -28,8 +28,9 @@ CLUSTER_MGR = cluster_manager.ClusterManager()
 
 def usage():
     ''' Show usage and exit with exit_code. '''
-    print("Usage: python3 ", __file__)
+    print("Usage: python3 ", __file__, " [--custom-docker-cmd 'docker run command']")
     print("Edit config file config/host.yaml in and run.")
+    print("Optional: --custom-docker-cmd 'your complete docker run command'")
     sys.exit(0)
 
 
@@ -100,6 +101,33 @@ def start_container_in_cluster(dp_path, run_args, container_name, image_name,
     bad_hosts = CLUSTER_MGR.run_command_some_hosts(start_cmd, nnodes, 600)
     if len(bad_hosts) != 0:
         RUN_LOGGER.error("Hosts that can't start docker container: " +
+                         ",".join(bad_hosts.keys()))
+        return False
+    return True
+
+
+def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
+    '''Start containers using custom docker command.'''
+    # Replace {CONTAINER_NAME} placeholder with actual container name if exists
+    final_cmd = custom_docker_cmd.replace("{CONTAINER_NAME}", container_name)
+
+    # If no placeholder and no --name in command, add container name
+    if "{CONTAINER_NAME}" not in custom_docker_cmd and "--name" not in custom_docker_cmd:
+        # Add container name before the image name (assuming format: docker run [options] image [cmd])
+        parts = final_cmd.split()
+        # Find where to insert --name (before the image name, usually the last non-option argument)
+        insert_pos = len(parts)
+        for i, part in enumerate(parts):
+            if not part.startswith('-') and i > 1:  # Skip 'docker' and 'run'
+                insert_pos = i
+                break
+        parts.insert(insert_pos, f"--name={container_name}")
+        final_cmd = " ".join(parts)
+
+    RUN_LOGGER.debug("Run custom docker cmd in the cluster: " + final_cmd)
+    bad_hosts = CLUSTER_MGR.run_command_some_hosts(final_cmd, nnodes, 600)
+    if len(bad_hosts) != 0:
+        RUN_LOGGER.error("Hosts that can't start custom docker container: " +
                          ",".join(bad_hosts.keys()))
         return False
     return True
@@ -222,7 +250,7 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     if os.path.isfile(env_shell):
         if config.VENDOR == "iluvatar":
-            start_cmd += " && export CUDA_VISIBLE_DEVICES=" + str(config.DEVICE) 
+            start_cmd += " && export CUDA_VISIBLE_DEVICES=" + str(config.DEVICE)
         start_cmd += " && source " + env_shell \
                      + " > " + abs_log_path + "/env.log.txt " \
                      + "2>&1"
@@ -260,29 +288,41 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
 
 
 def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
-                                   image_name, nnodes, config):
+                                   image_name, nnodes, config, custom_docker_cmd=None):
     '''Prepare containers environments in the cluster. It will start
        containers, setup environments, start monitors, and clear caches.'''
-    container_start_args = " --rm --init --detach --net=host --uts=host" \
-                           + " --ipc=host --security-opt=seccomp=unconfined" \
-                           + " --privileged=true --ulimit=stack=67108864" \
-                           + " --ulimit=memlock=-1" \
-                           + " -w " + config.FLAGPERF_PATH \
-                           + " --shm-size=" + config.SHM_SIZE \
-                           + " -v " + dp_path + ":" \
-                           + config.FLAGPERF_PATH
-
-    if config.ACCE_CONTAINER_OPT is not None:
-        container_start_args += " " + config.ACCE_CONTAINER_OPT
 
     RUN_LOGGER.info("a) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
     RUN_LOGGER.info("b) Start container(s) in the cluster.")
-    if not start_container_in_cluster(dp_path, container_start_args,
-                                      container_name, image_name, nnodes):
-        RUN_LOGGER.error("b) Start container in the cluster......"
-                         "[FAILED]. Ignore this round.")
-        return False
+
+    if custom_docker_cmd is not None:
+        # Use custom docker command
+        RUN_LOGGER.info("Using custom docker command: " + custom_docker_cmd)
+        if not start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
+            RUN_LOGGER.error("b) Start custom container in the cluster......"
+                             "[FAILED]. Ignore this round.")
+            return False
+    else:
+        # Use default container assembly logic
+        container_start_args = " --rm --init --detach --net=host --uts=host" \
+                               + " --ipc=host --security-opt=seccomp=unconfined" \
+                               + " --privileged=true --ulimit=stack=67108864" \
+                               + " --ulimit=memlock=-1" \
+                               + " -w " + config.FLAGPERF_PATH \
+                               + " --shm-size=" + config.SHM_SIZE \
+                               + " -v " + dp_path + ":" \
+                               + config.FLAGPERF_PATH
+
+        if config.ACCE_CONTAINER_OPT is not None:
+            container_start_args += " " + config.ACCE_CONTAINER_OPT
+
+        if not start_container_in_cluster(dp_path, container_start_args,
+                                          container_name, image_name, nnodes):
+            RUN_LOGGER.error("b) Start container in the cluster......"
+                             "[FAILED]. Ignore this round.")
+            return False
+
     RUN_LOGGER.info("b) Start container(s) in the cluster.......[SUCCESS]")
 
     RUN_LOGGER.info("c) Start monitors......")
@@ -500,10 +540,23 @@ def log_test_configs(cases, curr_log_path, dp_path, config):
     RUN_LOGGER.info("--------------------------------------------------")
 
 
+def parse_args():
+    '''Parse command line arguments'''
+    parser = ArgumentParser(description='FlagPerf Operation Benchmarks')
+    parser.add_argument('--custom-docker-cmd',
+                       type=str,
+                       help='Complete docker run command to use instead of default assembly')
+    return parser.parse_args()
+
+
 def main():
     '''Main process to run all the testcases'''
 
     print_welcome_msg()
+
+    # Parse command line arguments
+    args = parse_args()
+    custom_docker_cmd = args.custom_docker_cmd
 
     # load yaml
     with open("configs/host.yaml", "r") as file:
@@ -577,7 +630,7 @@ def main():
         case_log_dir = os.path.join(curr_log_path, case)
         if not prepare_containers_env_cluster(
                 dp_path, case_log_dir, container_name, image_name, nnodes,
-                config):
+                config, custom_docker_cmd):
             RUN_LOGGER.error("1) Prepare container environments in cluster"
                              "...[FAILED]. Ignore case " + case)
             continue
@@ -612,7 +665,5 @@ def main():
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        usage()
     main()
     RUN_LOGGER.stop()
