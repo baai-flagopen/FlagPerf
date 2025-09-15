@@ -496,79 +496,135 @@ def analysis_log(key_logs):
         RUN_LOGGER.info("Noderank {} with IP {}".format(noderank, host))
 
         RUN_LOGGER.info("1) Performance:")
-        for line in key_logs[host]["flagperf"]:
-            RUN_LOGGER.info("  " + line.split("]")[1])
+        flagperf_results = key_logs[host]["flagperf"]
+        if flagperf_results:
+            for line in flagperf_results:
+                if "]" in line and len(line.split("]")) > 1:
+                    RUN_LOGGER.info("  " + line.split("]")[1])
+                else:
+                    RUN_LOGGER.info("  " + line)
+        else:
+            RUN_LOGGER.info("  No performance results available")
 
         RUN_LOGGER.info("2) POWER:")
         RUN_LOGGER.info("  2.1) SYSTEM POWER:")
-        pwr_series = key_logs[host]["pwr"]
-        RUN_LOGGER.info(
-            "    AVERAGE: {} Watts, MAX: {} Watts, STD DEVIATION: {} Watts".
-            format(round(np.mean(pwr_series), 2), round(np.max(pwr_series), 2),
-                   round(np.std(pwr_series), 2)))
+        try:
+            pwr_series = key_logs[host]["pwr"]
+            if pwr_series:
+                RUN_LOGGER.info(
+                    "    AVERAGE: {} Watts, MAX: {} Watts, STD DEVIATION: {} Watts".
+                    format(round(np.mean(pwr_series), 2), round(np.max(pwr_series), 2),
+                           round(np.std(pwr_series), 2)))
+            else:
+                RUN_LOGGER.info("    No system power data available")
+        except Exception as e:
+            RUN_LOGGER.info(f"    Error reading system power data: {e}")
 
         RUN_LOGGER.info("  2.2) AI-chip POWER:")
-        for node in key_logs[host]["vendor"]["power"].keys():
-            pwr_series = key_logs[host]["vendor"]["power"][node]
-            kmeans_series = []
-            for item in pwr_series:
-                if (np.max(pwr_series) - item) <= (item - np.min(pwr_series)):
-                    kmeans_series.append(item)
-            pwr_series = kmeans_series
-            RUN_LOGGER.info(
-                "    RANK {}'s AVERAGE: {} Watts, MAX: {} Watts, STD DEVIATION: {} Watts"
-                .format(node, round(np.mean(pwr_series), 2),
-                        round(np.max(pwr_series), 2),
-                        round(np.std(pwr_series), 2)))
+        try:
+            if "vendor" in key_logs[host] and "power" in key_logs[host]["vendor"]:
+                for node in key_logs[host]["vendor"]["power"].keys():
+                    pwr_series = key_logs[host]["vendor"]["power"][node]
+                    if pwr_series:
+                        kmeans_series = []
+                        for item in pwr_series:
+                            if (np.max(pwr_series) - item) <= (item - np.min(pwr_series)):
+                                kmeans_series.append(item)
+                        pwr_series = kmeans_series
+                        if pwr_series:
+                            RUN_LOGGER.info(
+                                "    RANK {}'s AVERAGE: {} Watts, MAX: {} Watts, STD DEVIATION: {} Watts"
+                                .format(node, round(np.mean(pwr_series), 2),
+                                        round(np.max(pwr_series), 2),
+                                        round(np.std(pwr_series), 2)))
+                        else:
+                            RUN_LOGGER.info(f"    RANK {node}: No valid power data")
+                    else:
+                        RUN_LOGGER.info(f"    RANK {node}: No power data available")
+            else:
+                RUN_LOGGER.info("    No AI-chip power data available")
+        except Exception as e:
+            RUN_LOGGER.info(f"    Error reading AI-chip power data: {e}")
 
         RUN_LOGGER.info("  2.3) AI-chip TEMPERATURE:")
-        for node in key_logs[host]["vendor"]["temp"].keys():
-            temp_series = key_logs[host]["vendor"]["temp"][node]
-            kmeans_series = []
-            for item in temp_series:
-                if (np.max(temp_series) - item) <= (item -
-                                                    np.min(temp_series)):
-                    kmeans_series.append(item)
-            temp_series = kmeans_series
-            RUN_LOGGER.info(
-                u"    RANK {}'s AVERAGE: {} \u00b0C, MAX: {} \u00b0C, STD DEVIATION: {} \u00b0C"
-                .format(node, round(np.mean(temp_series), 2),
-                        round(np.max(temp_series), 2),
-                        round(np.std(temp_series), 2)))
+        try:
+            if "vendor" in key_logs[host] and "temp" in key_logs[host]["vendor"]:
+                for node in key_logs[host]["vendor"]["temp"].keys():
+                    temp_series = key_logs[host]["vendor"]["temp"][node]
+                    if temp_series:
+                        kmeans_series = []
+                        for item in temp_series:
+                            if (np.max(temp_series) - item) <= (item -
+                                                                np.min(temp_series)):
+                                kmeans_series.append(item)
+                        temp_series = kmeans_series
+                        if temp_series:
+                            RUN_LOGGER.info(
+                                u"    RANK {}'s AVERAGE: {} \u00b0C, MAX: {} \u00b0C, STD DEVIATION: {} \u00b0C"
+                                .format(node, round(np.mean(temp_series), 2),
+                                        round(np.max(temp_series), 2),
+                                        round(np.std(temp_series), 2)))
+                        else:
+                            RUN_LOGGER.info(f"    RANK {node}: No valid temperature data")
+                    else:
+                        RUN_LOGGER.info(f"    RANK {node}: No temperature data available")
+            else:
+                RUN_LOGGER.info("    No AI-chip temperature data available")
+        except Exception as e:
+            RUN_LOGGER.info(f"    Error reading AI-chip temperature data: {e}")
 
         RUN_LOGGER.info("3) Utilization:")
         RUN_LOGGER.info("  3.1) SYSTEM CPU:")
-        cpu_series = key_logs[host]["cpu"]
-        RUN_LOGGER.info(
-            "    AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".format(
-                round(np.mean(cpu_series) * 100, 3),
-                round(np.max(cpu_series) * 100, 3),
-                round(np.std(cpu_series) * 100, 3)))
+        try:
+            cpu_series = key_logs[host]["cpu"]
+            if cpu_series:
+                RUN_LOGGER.info(
+                    "    AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".format(
+                        round(np.mean(cpu_series) * 100, 3),
+                        round(np.max(cpu_series) * 100, 3),
+                        round(np.std(cpu_series) * 100, 3)))
+            else:
+                RUN_LOGGER.info("    No system CPU data available")
+        except Exception as e:
+            RUN_LOGGER.info(f"    Error reading system CPU data: {e}")
 
         RUN_LOGGER.info("  3.2) SYSTEM MEMORY:")
-        mem_series = key_logs[host]["mem"]
-        RUN_LOGGER.info(
-            "    AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".format(
-                round(np.mean(mem_series) * 100, 3),
-                round(np.max(mem_series) * 100, 3),
-                round(np.std(mem_series) * 100, 3)))
+        try:
+            mem_series = key_logs[host]["mem"]
+            if mem_series:
+                RUN_LOGGER.info(
+                    "    AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".format(
+                        round(np.mean(mem_series) * 100, 3),
+                        round(np.max(mem_series) * 100, 3),
+                        round(np.std(mem_series) * 100, 3)))
+            else:
+                RUN_LOGGER.info("    No system memory data available")
+        except Exception as e:
+            RUN_LOGGER.info(f"    Error reading system memory data: {e}")
 
         RUN_LOGGER.info("  3.3) AI-chip MEMORY:")
-        for node in key_logs[host]["vendor"]["mem"].keys():
-            mem_series = key_logs[host]["vendor"]["mem"][node]
-            RUN_LOGGER.info(
-                "    RANK {}'s AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".
-                format(
-                    node,
-                    round(
-                        np.mean(mem_series) * 100 /
-                        key_logs[host]["vendor"]["max_mem"], 3),
-                    round(
-                        np.max(mem_series) * 100 /
-                        key_logs[host]["vendor"]["max_mem"], 3),
-                    round(
-                        np.std(mem_series) * 100 /
-                        key_logs[host]["vendor"]["max_mem"], 3)))
+        try:
+            if "vendor" in key_logs[host] and "mem" in key_logs[host]["vendor"]:
+                for node in key_logs[host]["vendor"]["mem"].keys():
+                    mem_series = key_logs[host]["vendor"]["mem"][node]
+                    if mem_series and "max_mem" in key_logs[host]["vendor"]:
+                        max_mem = key_logs[host]["vendor"]["max_mem"]
+                        if max_mem > 0:
+                            RUN_LOGGER.info(
+                                "    RANK {}'s AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".
+                                format(
+                                    node,
+                                    round(np.mean(mem_series) * 100 / max_mem, 3),
+                                    round(np.max(mem_series) * 100 / max_mem, 3),
+                                    round(np.std(mem_series) * 100 / max_mem, 3)))
+                        else:
+                            RUN_LOGGER.info(f"    RANK {node}: Invalid max memory value")
+                    else:
+                        RUN_LOGGER.info(f"    RANK {node}: No memory data available")
+            else:
+                RUN_LOGGER.info("    No AI-chip memory data available")
+        except Exception as e:
+            RUN_LOGGER.info(f"    Error reading AI-chip memory data: {e}")
         noderank += 1
 
 
