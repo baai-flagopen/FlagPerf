@@ -254,76 +254,32 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     abs_log_path = os.path.join(dp_path, curr_log_path)
 
+    # 简化命令结构，避免复杂的嵌套和引号问题
     start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -r \"echo Hello FlagPerf" \
-                + " > " + abs_log_path + "/hello.log.txt"
+                + container_name + " -d -r \"echo 'Starting FlagPerf task...' " \
+                + "&& python3 --version " \
+                + "&& pip3 install loguru || python3 -m pip install loguru || echo 'loguru install skipped'"
 
-    # 检查并安装pip，然后安装必需的模块
-    start_cmd += " && (echo 'Checking pip availability...' " \
-                 + "&& echo 'Python executable: '$(which python3) " \
-                 + "&& python3 --version " \
-                 + "&& (which pip3 >/dev/null 2>&1 && echo 'pip3 found: '$(which pip3) " \
-                 + "|| python3 -m pip --version >/dev/null 2>&1 && echo 'python3 -m pip available' " \
-                 + "|| which pip >/dev/null 2>&1 && echo 'pip found: '$(which pip) " \
-                 + "|| (echo 'No pip found, attempting installation...' " \
-                 + "&& (echo 'Trying ensurepip...' && python3 -m ensurepip --default-pip " \
-                 + "|| (echo 'Trying apt-get...' && apt-get update >/dev/null 2>&1 && apt-get install -y python3-pip) " \
-                 + "|| (echo 'Trying get-pip.py via curl...' && curl -sS https://bootstrap.pypa.io/get-pip.py | python3) " \
-                 + "|| (echo 'Trying get-pip.py via wget...' && wget -qO- https://bootstrap.pypa.io/get-pip.py | python3) " \
-                 + "|| (echo 'FATAL: Cannot install pip!' && exit 1)))) " \
-                 + "&& echo 'Checking loguru module...' " \
-                 + "&& (python3 -c 'import loguru; print(\"loguru already available\")' 2>/dev/null " \
-                 + "|| (echo 'Installing loguru...' " \
-                 + "&& (pip3 install loguru " \
-                 + "|| python3 -m pip install loguru " \
-                 + "|| pip install loguru " \
-                 + "|| (echo 'FATAL: Cannot install loguru!' && exit 1)))) " \
-                 + ">> " + abs_log_path + "/module_install.log.txt 2>&1)"
-
-    # 首先安装operation目录下的基础依赖
+    # 安装依赖文件（如果存在）
     operation_req_file = os.path.join(dp_path, "requirements.txt")
     if os.path.isfile(operation_req_file):
-        start_cmd += " && (echo 'Installing operation requirements...' " \
-                     + "&& (pip3 install -r " + operation_req_file \
-                     + " || python3 -m pip install -r " + operation_req_file \
-                     + " || pip install -r " + operation_req_file + ")) " \
-                     + "> " + abs_log_path + "/operation_pip_install.log.txt " \
-                     + "2>&1"
+        start_cmd += " && pip3 install -r " + operation_req_file + " || echo 'operation requirements install failed'"
 
-    # 然后安装特定case的依赖
     if os.path.isfile(req_file):
-        start_cmd += " && (echo 'Installing case requirements...' " \
-                     + "&& (pip3 install -r " + req_file \
-                     + " || python3 -m pip install -r " + req_file \
-                     + " || pip install -r " + req_file + ")) " \
-                     + "> " + abs_log_path + "/case_pip_install.log.txt " \
-                     + "2>&1"
+        start_cmd += " && pip3 install -r " + req_file + " || echo 'case requirements install failed'"
 
     if os.path.isfile(env_shell):
         if config.VENDOR == "iluvatar":
             start_cmd += " && export CUDA_VISIBLE_DEVICES=" + str(config.DEVICE)
-        start_cmd += " && source " + env_shell \
-                     + " > " + abs_log_path + "/env.log.txt " \
-                     + "2>&1"
+        start_cmd += " && source " + env_shell + " || echo 'env setup failed'"
 
-    # 创建调试日志文件，使用容器内的路径
+    # 创建日志目录并运行主程序
     debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/container_debug.log"
-    # 确保日志目录存在并执行简单测试
     start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                 + " && echo 'Container test started at '$(date) > " + debug_log_path \
-                 + " && echo 'Working directory: '$(pwd) >> " + debug_log_path \
-                 + " && echo 'User: '$(whoami) >> " + debug_log_path \
-                 + " && echo 'Python version:' >> " + debug_log_path \
-                 + " && python3 --version >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Environment variables:' >> " + debug_log_path \
-                 + " && env | grep -E '(FLAGPERF|PATH)' >> " + debug_log_path \
-                 + " && echo 'Files in current directory:' >> " + debug_log_path \
-                 + " && ls -la >> " + debug_log_path \
-                 + " && echo 'About to run container_main.py' >> " + debug_log_path \
-                 + " && echo 'Command: python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + "' >> " + debug_log_path \
+                 + " && echo 'Running container_main.py...' > " + debug_log_path \
                  + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + " >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Container_main.py execution completed' >> " + debug_log_path
+                 + " && echo 'Task completed' >> " + debug_log_path
 
     start_cmd += " \""
 
