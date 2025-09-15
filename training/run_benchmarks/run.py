@@ -375,9 +375,14 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
                      + " && echo 'Environment sourced, starting training' >> " + debug_log_path \
                      + " && python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
                      + framework + "/start_" + framework + "_task.py " \
-                     + base_args + " --round " + str(count) \
-                     + " 2>&1 | tee -a " + debug_log_path \
-                     + " && echo 'Training finished with exit code: '$? >> " + debug_log_path
+                     + base_args + " --round " + str(count)
+        
+        # 添加可见设备环境变量参数（在Python脚本参数中）
+        if tc.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
+            start_cmd += " --visible_dev_env " + tc.ACCE_VISIBLE_DEVICE_ENV_NAME
+        
+        # 结束命令，让 cluster_manager 插入分布式参数
+        start_cmd += "\""
     else:
         start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
@@ -386,14 +391,14 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
                 + " && echo 'Starting training task no env at '$(date) > " + debug_log_path \
                 + " && python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
                 + framework + "/start_" + framework + "_task.py " \
-                + base_args + " --round " + str(count) \
-                + " 2>&1 | tee -a " + debug_log_path \
-                + " && echo 'Training finished with exit code: '$? >> " + debug_log_path
-    
-    if tc.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
-        start_cmd += " --visible_dev_env " \
-                     + tc.ACCE_VISIBLE_DEVICE_ENV_NAME
-    start_cmd += " \""
+                + base_args + " --round " + str(count)
+        
+        # 添加可见设备环境变量参数（在Python脚本参数中）
+        if tc.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
+            start_cmd += " --visible_dev_env " + tc.ACCE_VISIBLE_DEVICE_ENV_NAME
+        
+        # 结束命令，让 cluster_manager 插入分布式参数
+        start_cmd += "\""
     
     RUN_LOGGER.info("🚀 [训练命令] 准备执行训练启动命令...")
     RUN_LOGGER.info("📋 [训练参数] " + base_args)
