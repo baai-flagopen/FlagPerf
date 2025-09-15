@@ -291,13 +291,18 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                      + " > " + abs_log_path + "/env.log.txt " \
                      + "2>&1"
 
-    start_cmd += " && python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args \
-                 + " > " + abs_log_path + "/container_main.log.txt " \
-                 + "2>&1"
+    # 确保日志目录存在并添加调试信息
+    start_cmd += " && mkdir -p " + abs_log_path + "/" + case + "/localhost_noderank0" \
+                 + " && echo 'Log directory created: " + abs_log_path + "/" + case + "/localhost_noderank0'" \
+                 + " && echo 'Starting container_main.py...' " \
+                 + "&& python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args \
+                 + " && echo 'container_main.py completed successfully' " \
+                 + "|| echo 'container_main.py failed with exit code $?'"
 
     start_cmd += " \""
 
     RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
+    RUN_LOGGER.info(f"Container main args: {base_args}")
     CLUSTER_MGR.run_command_some_hosts_distribution_info(
         start_cmd, nnodes, 15, "base")
     # Wait a moment for starting tasks.
@@ -725,13 +730,19 @@ def main():
         # Set command to start train script in container in the cluster
         log_dir_container = os.path.join(config.FLAGPERF_LOG_PATH,
                                          timestamp_log_dir)
+        # 获取主节点地址（第一个host）
+        master_addr = config.HOSTS[0]
+        
         base_args = " --vendor " + config.VENDOR + " --case_name " + case \
                     + " --nnodes " + str(nnodes) \
                     + " --perf_path " + dp_path \
                     + " --nproc_per_node " + str(config.NPROC_PER_NODE) \
                     + " --log_dir " + os.path.join(dp_path, log_dir_container) \
                     + " --log_level " + config.FLAGPERF_LOG_LEVEL.upper() \
-                    + " --master_port " + config.MASTER_PORT
+                    + " --master_port " + config.MASTER_PORT \
+                    + " --master_addr " + master_addr \
+                    + " --host_addr " + master_addr \
+                    + " --node_rank 0"
 
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases. ===")
 
