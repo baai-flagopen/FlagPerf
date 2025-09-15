@@ -241,36 +241,20 @@ def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes)
 
 
 def stop_container_in_cluster(dp_path, container_name, nnodes):
-    '''Call CLUSTER_MGR tool to stop containers with enhanced cleanup.'''
-    
-    # 首先尝试正常停止容器
+    '''Call CLUSTER_MGR tool to stop containers.'''
     stop_cont_cmd = "cd " + dp_path + " && " + sys.executable \
                     + " ../utils/container_manager.py -o stop" \
                     + " -c " + container_name
     RUN_LOGGER.debug("Run cmd to stop container(s) in the cluster:" +
                      stop_cont_cmd)
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes, 60)
-    
-    # 如果正常停止失败，尝试强制清理
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes,
+                                                      60)
     if len(failed_hosts) != 0:
-        RUN_LOGGER.warning("Normal container stop failed, attempting force cleanup...")
-        
-        # 强制停止和删除容器
-        force_cleanup_cmd = f"docker ps -aq --filter name={container_name} | xargs -r docker rm -f"
-        RUN_LOGGER.debug("Force cleanup cmd: " + force_cleanup_cmd)
-        
-        cleanup_failed = CLUSTER_MGR.run_command_some_hosts(force_cleanup_cmd, nnodes, 30)
-        
-        # 额外清理：删除所有相关容器
-        extra_cleanup_cmd = "docker container prune -f"
-        CLUSTER_MGR.run_command_some_hosts(extra_cleanup_cmd, nnodes, 30)
-        
-        if len(cleanup_failed) != 0:
-            RUN_LOGGER.warning("Hosts that force cleanup failed:" + 
-                             ",".join(cleanup_failed.keys()) + " Continue.")
-            return False
-    
-    RUN_LOGGER.info("All containers stopped and cleaned up in the cluster")
+        RUN_LOGGER.warning("Hosts that stop container " + container_name +
+                           " failed:" + ",".join(failed_hosts.keys()) +
+                           " Continue.")
+        return False
+    RUN_LOGGER.info("All containers stoped in the cluster")
     return True
 
 
