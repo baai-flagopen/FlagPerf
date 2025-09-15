@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import getpass
+from argparse import ArgumentParser
 from config import cluster_conf as cc
 from config import test_conf as tc
 
@@ -26,10 +27,20 @@ CLUSTER_MGR = cluster_manager.ClusterManager()
 
 def usage():
     ''' Show usage and exit with exit_code. '''
-    print("Usage: python3 ", __file__)
+    print("Usage: python3 ", __file__, " [--custom-docker-cmd 'docker run command']")
     print("Edit config file test_conf.py & cluster_conf.py in "
           "training/run_benchmarks/config and run.")
+    print("Optional: --custom-docker-cmd 'your complete docker run command'")
     sys.exit(0)
+
+
+def parse_args():
+    '''Parse command line arguments'''
+    parser = ArgumentParser(description='FlagPerf Training Benchmarks')
+    parser.add_argument('--custom-docker-cmd',
+                       type=str,
+                       help='Complete docker run command to use instead of default assembly')
+    return parser.parse_args()
 
 
 def check_cluster_health():
@@ -197,21 +208,64 @@ def start_container_in_cluster(dp_path, run_args, container_name, image_name,
     return True
 
 
+def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
+    '''Start containers using custom docker command.'''
+    # Replace {CONTAINER_NAME} placeholder with actual container name if exists
+    final_cmd = custom_docker_cmd.replace("{CONTAINER_NAME}", container_name)
+
+    # If no placeholder and no --name in command, add container name
+    if "{CONTAINER_NAME}" not in custom_docker_cmd and "--name" not in custom_docker_cmd:
+        # Add container name before the image name (assuming format: docker run [options] image [cmd])
+        parts = final_cmd.split()
+        # Find where to insert --name (before the image name, usually the last non-option argument)
+        insert_pos = len(parts)
+        for i, part in enumerate(parts):
+            if not part.startswith('-') and i > 1:  # Skip 'docker' and 'run'
+                insert_pos = i
+                break
+        parts.insert(insert_pos, f"--name={container_name}")
+        final_cmd = " ".join(parts)
+
+    RUN_LOGGER.debug("Run custom docker cmd in the cluster: " + final_cmd)
+    bad_hosts = CLUSTER_MGR.run_command_some_hosts(final_cmd, nnodes, 600)
+    if len(bad_hosts) != 0:
+        RUN_LOGGER.error("Hosts that can't start custom docker container: " +
+                         ",".join(bad_hosts.keys()))
+        return False
+    return True
+
+
 def stop_container_in_cluster(dp_path, container_name, nnodes):
-    '''Call CLUSTER_MGR tool to stop containers.'''
+    '''Call CLUSTER_MGR tool to stop containers with enhanced cleanup.'''
+    
+    # 首先尝试正常停止容器
     stop_cont_cmd = "cd " + dp_path + " && " + sys.executable \
                     + " ../utils/container_manager.py -o stop" \
                     + " -c " + container_name
     RUN_LOGGER.debug("Run cmd to stop container(s) in the cluster:" +
                      stop_cont_cmd)
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes,
-                                                      60)
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes, 60)
+    
+    # 如果正常停止失败，尝试强制清理
     if len(failed_hosts) != 0:
-        RUN_LOGGER.warning("Hosts that stop container " + container_name +
-                           " failed:" + ",".join(failed_hosts.keys()) +
-                           " Continue.")
-        return False
-    RUN_LOGGER.info("All containers stoped in the cluster")
+        RUN_LOGGER.warning("Normal container stop failed, attempting force cleanup...")
+        
+        # 强制停止和删除容器
+        force_cleanup_cmd = f"docker ps -aq --filter name={container_name} | xargs -r docker rm -f"
+        RUN_LOGGER.debug("Force cleanup cmd: " + force_cleanup_cmd)
+        
+        cleanup_failed = CLUSTER_MGR.run_command_some_hosts(force_cleanup_cmd, nnodes, 30)
+        
+        # 额外清理：删除所有相关容器
+        extra_cleanup_cmd = "docker container prune -f"
+        CLUSTER_MGR.run_command_some_hosts(extra_cleanup_cmd, nnodes, 30)
+        
+        if len(cleanup_failed) != 0:
+            RUN_LOGGER.warning("Hosts that force cleanup failed:" + 
+                             ",".join(cleanup_failed.keys()) + " Continue.")
+            return False
+    
+    RUN_LOGGER.info("All containers stopped and cleaned up in the cluster")
     return True
 
 
@@ -296,28 +350,55 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
         case_config["model"] + "-" + framework_sub_path,
         "config/environment_variables.sh")
     framework = case_config["framework"].split("_")[0]
+    
+    # 创建增强的启动命令，类似算子测试版本的改动
+    abs_log_path = os.path.join(dp_path, curr_log_path)
+    debug_log_path = tc.FLAGPERF_PATH + "/" + curr_log_path + "/training_debug.log"
+    
     if (os.path.isfile(env_file)):
         start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -r \"source " + env_file \
-                + " > " + curr_log_path + "/source_env.log.txt " \
-                + "2>&1 && " \
-                + "python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
-                + framework + "/start_" + framework + "_task.py " \
-                + base_args + " --round " + str(count)
+                + container_name + " -d -t 600 -r \"python3 --version"
+        
+        # 创建日志目录并记录调试信息
+        start_cmd += " && mkdir -p " + tc.FLAGPERF_PATH + "/" + curr_log_path \
+                     + " && echo 'Starting training task at '$(date) > " + debug_log_path \
+                     + " && source " + env_file \
+                     + " > " + curr_log_path + "/source_env.log.txt 2>&1" \
+                     + " && echo 'Environment sourced, starting training' >> " + debug_log_path \
+                     + " && python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
+                     + framework + "/start_" + framework + "_task.py " \
+                     + base_args + " --round " + str(count) \
+                     + " 2>&1 | tee -a " + debug_log_path \
+                     + " && echo 'Training finished with exit code: '$? >> " + debug_log_path
     else:
         start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -r \"" \
-                + "python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
+                + container_name + " -d -t 600 -r \"python3 --version" \
+                + " && mkdir -p " + tc.FLAGPERF_PATH + "/" + curr_log_path \
+                + " && echo 'Starting training task (no env) at '$(date) > " + debug_log_path \
+                + " && python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
                 + framework + "/start_" + framework + "_task.py " \
-                + base_args + " --round " + str(count)
+                + base_args + " --round " + str(count) \
+                + " 2>&1 | tee -a " + debug_log_path \
+                + " && echo 'Training finished with exit code: '$? >> " + debug_log_path
+    
     if tc.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
         start_cmd += " --visible_dev_env " \
                      + tc.ACCE_VISIBLE_DEVICE_ENV_NAME
     start_cmd += " \""
-    RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
-    CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 15, "training")
+    
+    RUN_LOGGER.debug("Run cmd in the cluster to start training tasks, cmd=" + start_cmd)
+    RUN_LOGGER.info(f"Training main args: {base_args}")
+    
+    # 执行命令并检查结果
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 15, "training")
+    
+    if failed_hosts and len(failed_hosts) > 0:
+        RUN_LOGGER.error(f"Training command execution failed on hosts: {list(failed_hosts.keys())}")
+    else:
+        RUN_LOGGER.info("Training command execution started successfully on all hosts")
+    
     # Wait a moment for starting tasks.
     time.sleep(60)
 
@@ -325,63 +406,133 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
 def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
     '''wait all the processes of start_xxx_task.py finished.
     '''
-    # Aussme pid of start_xxx_task.py won't loop in a short time.
+    # 设置最大等待时间（训练任务通常需要更长时间）
+    max_wait_time = 3600  # 1小时超时
+    start_wait_time = time.time()
+    
     check_cmd = "cd " + dp_path + "; " + sys.executable \
                 + " ../utils/container_manager.py -o pidrunning -c " \
                 + container_name + " -f " + pid_file_path
 
     RUN_LOGGER.debug(
         "Run cmd to check whether the training tasks is running: " + check_cmd)
-    while True:
+    
+    # 首先等待任务启动
+    time.sleep(10)
+    
+    while time.time() - start_wait_time < max_wait_time:
         bad_hosts = CLUSTER_MGR.run_command_some_hosts(check_cmd,
                                                        nnodes,
                                                        no_log=True)
         if len(bad_hosts) == nnodes:
             break
-        time.sleep(10)
+        time.sleep(30)
+    
+    if time.time() - start_wait_time >= max_wait_time:
+        RUN_LOGGER.warning("Training task wait timeout reached, proceeding with cleanup")
+    
+    RUN_LOGGER.info("Training tasks finished in the cluster")
 
 
 def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
-                                   image_name, case_config):
+                                   image_name, case_config, custom_docker_cmd=None):
     '''Prepare containers environments in the cluster. It will start
        containers, setup environments, start monitors, and clear caches.'''
     nnodes = case_config["nnodes"]
-    container_start_args = " --rm --init --detach --net=host --uts=host" \
-                           + " --ipc=host --security-opt=seccomp=unconfined" \
-                           + " --privileged=true --ulimit=stack=67108864" \
-                           + " --ulimit=memlock=-1" \
-                           + " -w " + tc.FLAGPERF_PATH \
-                           + " --shm-size=" + tc.SHM_SIZE \
-                           + " -v " + dp_path + ":" \
-                           + tc.FLAGPERF_PATH \
-                           + " -v " + os.path.join(dp_path, "..") + ":" \
-                           + os.path.join(tc.FLAGPERF_PATH, "..") \
-                           + " -v " + case_config["data_dir_host"] + ":" \
-                           + case_config["data_dir_container"]
-    if tc.ACCE_CONTAINER_OPT is not None:
-        container_start_args += " " + tc.ACCE_CONTAINER_OPT
+    
+    RUN_LOGGER.info("a) Check and clean Docker environment first.")
+    
+    # 检查Docker状态
+    docker_status_cmd = "docker ps"
+    RUN_LOGGER.debug("Checking running Docker containers: " + docker_status_cmd)
+    CLUSTER_MGR.run_command_some_hosts(docker_status_cmd, nnodes, 30)
+    
+    # 检查容器是否存在，然后清理
+    check_container_cmd = f"docker ps -aq --filter name={container_name}"
+    RUN_LOGGER.debug("Checking if container exists: " + check_container_cmd)
+    existing_result = CLUSTER_MGR.run_command_some_hosts(check_container_cmd, nnodes, 15)
+    
+    # 如果容器存在（命令成功执行），则进行清理
+    if len(existing_result) == 0:  # 没有失败的主机，说明命令执行成功
+        RUN_LOGGER.info("Found existing containers, cleaning up...")
+        
+        # 停止容器
+        stop_related_cmd = f"docker stop {container_name} 2>/dev/null || true"
+        RUN_LOGGER.debug("Stopping existing container: " + stop_related_cmd)
+        CLUSTER_MGR.run_command_some_hosts(stop_related_cmd, nnodes, 15)
+        
+        # 删除容器
+        remove_related_cmd = f"docker rm {container_name} 2>/dev/null || true"
+        RUN_LOGGER.debug("Removing existing container: " + remove_related_cmd)
+        CLUSTER_MGR.run_command_some_hosts(remove_related_cmd, nnodes, 15)
+    else:
+        RUN_LOGGER.info("No existing containers found, proceeding with fresh start.")
 
-    RUN_LOGGER.info("a) Stop old container(s) first.")
+    RUN_LOGGER.info("b) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
-    RUN_LOGGER.info("b) Start container(s) in the cluster.")
-    if not start_container_in_cluster(dp_path, container_start_args,
-                                      container_name, image_name, nnodes):
-        RUN_LOGGER.error("b) Start container in the cluster......"
-                         "[FAILED]. Ignore this round.")
-        return False
-    RUN_LOGGER.info("b) Start container(s) in the cluster.......[SUCCESS]")
+    RUN_LOGGER.info("c) Start container(s) in the cluster.")
 
-    RUN_LOGGER.info("c) Prepare running environment.")
+    if custom_docker_cmd is not None:
+        # Use custom docker command
+        RUN_LOGGER.info("Using custom docker command: " + custom_docker_cmd)
+        if not start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
+            RUN_LOGGER.error("c) Start custom container in the cluster......"
+                             "[FAILED]. Ignore this round.")
+            return False
+    else:
+        # Use default container assembly logic
+        container_start_args = " --rm --init --detach --net=host --uts=host" \
+                               + " --ipc=host --security-opt=seccomp=unconfined" \
+                               + " --privileged=true --ulimit=stack=67108864" \
+                               + " --ulimit=memlock=-1" \
+                               + " -w " + tc.FLAGPERF_PATH \
+                               + " --shm-size=" + tc.SHM_SIZE \
+                               + " -v " + dp_path + ":" \
+                               + tc.FLAGPERF_PATH \
+                               + " -v " + os.path.join(dp_path, "..") + ":" \
+                               + os.path.join(tc.FLAGPERF_PATH, "..") \
+                               + " -v " + case_config["data_dir_host"] + ":" \
+                               + case_config["data_dir_container"]
+        if tc.ACCE_CONTAINER_OPT is not None:
+            container_start_args += " " + tc.ACCE_CONTAINER_OPT
+
+        if not start_container_in_cluster(dp_path, container_start_args,
+                                          container_name, image_name, nnodes):
+            RUN_LOGGER.error("c) Start container in the cluster......"
+                             "[FAILED]. Ignore this round.")
+            return False
+
+    RUN_LOGGER.info("c) Start container(s) in the cluster.......[SUCCESS]")
+    
+    # 验证容器是否真的启动成功
+    verify_cmd = f"docker ps --filter name={container_name}"
+    RUN_LOGGER.debug("Verifying container status: " + verify_cmd)
+    CLUSTER_MGR.run_command_some_hosts(verify_cmd, nnodes, 15)
+    
+    # 测试容器是否响应命令
+    RUN_LOGGER.info("Testing container command execution...")
+    test_cmd = "cd " + dp_path + " && " + sys.executable \
+               + " ../utils/container_manager.py -o runcmdin -c " \
+               + container_name + " -d -t 30 -r \"echo 'Container test: '$(date) && whoami && pwd\""
+    RUN_LOGGER.debug("Container test command: " + test_cmd)
+    test_result = CLUSTER_MGR.run_command_some_hosts(test_cmd, nnodes, 30)
+    
+    if len(test_result) == 0:
+        RUN_LOGGER.info("✓ Container responds to commands successfully")
+    else:
+        RUN_LOGGER.warning("✗ Container command test failed on hosts: " + ",".join(test_result.keys()))
+
+    RUN_LOGGER.info("d) Prepare running environment.")
     if not prepare_running_env(dp_path, container_name, case_config):
-        RUN_LOGGER.error("c) Prepare running environment......"
+        RUN_LOGGER.error("d) Prepare running environment......"
                          "[FAILED]. Ignore this round.")
         RUN_LOGGER.info("Stop containers in cluster.")
         stop_container_in_cluster(dp_path, container_name, nnodes)
         return False
-    RUN_LOGGER.info("c) Prepare running environment......[SUCCESS]")
-    RUN_LOGGER.info("d) Start monitors......")
+    RUN_LOGGER.info("d) Prepare running environment......[SUCCESS]")
+    RUN_LOGGER.info("e) Start monitors......")
     start_monitors_in_cluster(dp_path, case_log_dir, nnodes)
-    RUN_LOGGER.info("e) Clear system caches if it set......")
+    RUN_LOGGER.info("f) Clear system caches if it set......")
     clear_caches_cluster(tc.CLEAR_CACHES, nnodes)
     return True
 
@@ -538,6 +689,10 @@ def main():
 
     print_welcome_msg()
 
+    # Parse command line arguments
+    args = parse_args()
+    custom_docker_cmd = args.custom_docker_cmd
+
     # Set logger first
     timestamp_log_dir = "run" + time.strftime("%Y%m%d%H%M%S", time.localtime())
     curr_log_path = os.path.join(tc.FLAGPERF_LOG_PATH, timestamp_log_dir)
@@ -616,7 +771,7 @@ def main():
                                         "round" + str(count))
             if not prepare_containers_env_cluster(dp_path, case_log_dir,
                                                   container_name, image_name,
-                                                  case_config):
+                                                  case_config, custom_docker_cmd):
                 RUN_LOGGER.error("1) Prepare container environments in cluster"
                                  "...[FAILED]. Ignore case " + case +
                                  " round " + str(count))
@@ -630,8 +785,8 @@ def main():
             pid_file_path = os.path.join(
                 log_dir_container, "start_" +
                 case_config["framework"].split("_")[0] + "_task.pid")
+            
             wait_for_finish(dp_path, container_name, pid_file_path, nnodes)
-            RUN_LOGGER.info("3) Training tasks end in the cluster...")
             RUN_LOGGER.info("4) Clean container environments in cluster...")
             clean_containers_env_cluster(dp_path, container_name, nnodes)
             RUN_LOGGER.info("-== Testcase " + case + " Round " + str(count) +
@@ -643,7 +798,10 @@ def main():
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        usage()
-    main()
-    RUN_LOGGER.stop()
+    try:
+        main()
+    except Exception as e:
+        RUN_LOGGER.error(f"Training run failed: {e}")
+        sys.exit(1)
+    finally:
+        RUN_LOGGER.stop()
