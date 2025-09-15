@@ -314,7 +314,7 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                  + " && pwd >> " + debug_log_path \
                  + " && whoami >> " + debug_log_path \
                  + " && python3 --version >> " + debug_log_path + " 2>&1" \
-                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args + " >> " + debug_log_path + " 2>&1" \
+                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + " >> " + debug_log_path + " 2>&1" \
                  + " && echo 'Test completed' >> " + debug_log_path
 
     start_cmd += " \""
@@ -322,9 +322,9 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
     RUN_LOGGER.info(f"Container main args: {base_args}")
     CLUSTER_MGR.run_command_some_hosts_distribution_info(
-        start_cmd, nnodes, 15, "base")
+        start_cmd, nnodes, 300, "base")  # 增加超时时间到300秒
     # Wait a moment for starting tasks.
-    time.sleep(60)
+    time.sleep(10)  # 减少等待时间，因为任务已经在后台运行
 
 
 def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
@@ -876,7 +876,31 @@ def main():
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
         pid_file_path = os.path.join(log_dir_container, "start_base_task.pid")
-        wait_for_finish(dp_path, container_name, pid_file_path, nnodes)
+        
+        # 首先等待一段时间让任务开始执行
+        RUN_LOGGER.info("3.1) Waiting for task to start...")
+        time.sleep(5)
+        
+        # 然后等待任务完成，但设置最大等待时间
+        max_wait_time = 300  # 最多等待5分钟
+        start_wait_time = time.time()
+        
+        while time.time() - start_wait_time < max_wait_time:
+            check_cmd = "cd " + dp_path + "; " + sys.executable \
+                        + " ../utils/container_manager.py -o pidrunning -c " \
+                        + container_name + " -f " + pid_file_path
+            
+            bad_hosts = CLUSTER_MGR.run_command_some_hosts(check_cmd, nnodes, 10, no_log=True)
+            
+            if len(bad_hosts) == nnodes:
+                RUN_LOGGER.info("All tasks completed or PID files not found")
+                break
+            
+            RUN_LOGGER.debug(f"Tasks still running on {nnodes - len(bad_hosts)} hosts")
+            time.sleep(10)
+        
+        if time.time() - start_wait_time >= max_wait_time:
+            RUN_LOGGER.warning("Task wait timeout reached, proceeding with cleanup")
         
         # 检查关键日志文件是否生成
         RUN_LOGGER.info("4) Checking task execution results...")
