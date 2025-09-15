@@ -254,10 +254,10 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     abs_log_path = os.path.join(dp_path, curr_log_path)
 
-    # 简化命令结构，确保依赖安装成功
+    # 简化命令结构，确保依赖安装成功，设置足够的超时时间
     start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -r \"python3 --version"
+                + container_name + " -d -t 600 -r \"python3 --version"
 
     # 确保 loguru 安装成功
     start_cmd += " && (pip3 install loguru || python3 -m pip install loguru || (python3 -m ensurepip --default-pip && pip3 install loguru))"
@@ -278,11 +278,12 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     # 验证 loguru 安装 - 避免引号冲突
     start_cmd += " && python3 -c 'import loguru'"
 
-    # 创建日志目录并运行主程序
-    # 为了调试，我们需要捕获container_main.py的输出
+    # 创建日志目录并先运行诊断脚本
     debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/container_main_debug.log"
     start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                 + " && echo 'Starting container_main.py at '$(date) > " + debug_log_path \
+                 + " && echo 'Starting diagnostic test at '$(date) > " + debug_log_path \
+                 + " && python3 " + config.FLAGPERF_PATH + "/test_container.py >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Diagnostic test finished, now starting container_main.py' >> " + debug_log_path \
                  + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args \
                  + " 2>&1 | tee -a " + debug_log_path \
                  + " && echo 'container_main.py finished with exit code: '$? >> " + debug_log_path
@@ -312,7 +313,7 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     RUN_LOGGER.info("Checking if debug log was created immediately...")
     check_debug_cmd = "cd " + dp_path + " && " + sys.executable \
                      + " ../utils/container_manager.py -o runcmdin -c " \
-                     + container_name + " -d -r \"ls -la " + config.FLAGPERF_PATH + "/" + curr_log_path + "/\""
+                     + container_name + " -d -t 30 -r \"ls -la " + config.FLAGPERF_PATH + "/" + curr_log_path + "/\""
     RUN_LOGGER.debug("Debug check command: " + check_debug_cmd)
     debug_check_result = CLUSTER_MGR.run_command_some_hosts(check_debug_cmd, nnodes, 15)
     
@@ -416,7 +417,7 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
     RUN_LOGGER.info("Testing container command execution...")
     test_cmd = "cd " + dp_path + " && " + sys.executable \
                + " ../utils/container_manager.py -o runcmdin -c " \
-               + container_name + " -d -r \"echo 'Container test: '$(date) && whoami && pwd\""
+               + container_name + " -d -t 30 -r \"echo 'Container test: '$(date) && whoami && pwd\""
     RUN_LOGGER.debug("Container test command: " + test_cmd)
     test_result = CLUSTER_MGR.run_command_some_hosts(test_cmd, nnodes, 30)
     
@@ -831,7 +832,7 @@ def main():
         RUN_LOGGER.info("2.2) Testing manual container command...")
         manual_test_cmd = "cd " + dp_path + " && " + sys.executable \
                          + " ../utils/container_manager.py -o runcmdin -c " \
-                         + container_name + " -d -r \"echo 'Manual test at '$(date) > " \
+                         + container_name + " -d -t 30 -r \"echo 'Manual test at '$(date) > " \
                          + config.FLAGPERF_PATH + "/" + curr_log_path + "/manual_test.log" + "\""
         RUN_LOGGER.debug("Manual test command: " + manual_test_cmd)
         manual_result = CLUSTER_MGR.run_command_some_hosts(manual_test_cmd, nnodes, 15)
@@ -857,7 +858,9 @@ def main():
                     content = f.read().strip()
                     if content:
                         RUN_LOGGER.info("Container main debug log content:")
-                        for line in content.split('\n'):
+                        lines = content.split('\n')
+                        # 显示所有内容，因为这是诊断信息
+                        for line in lines:
                             RUN_LOGGER.info(f"  {line}")
                     else:
                         RUN_LOGGER.warning("Container main debug log is empty")
@@ -865,6 +868,16 @@ def main():
                 RUN_LOGGER.warning(f"Cannot read container main debug log: {e}")
         else:
             RUN_LOGGER.warning("✗ Container main debug log not found")
+            # 尝试在容器内直接检查文件
+            check_debug_cmd = "cd " + dp_path + " && " + sys.executable \
+                             + " ../utils/container_manager.py -o runcmdin -c " \
+                             + container_name + " -d -t 60 -r \"ls -la " + config.FLAGPERF_PATH + "/" + curr_log_path + "/ && echo '--- File contents ---' && cat " + config.FLAGPERF_PATH + "/" + curr_log_path + "/container_main_debug.log 2>/dev/null || echo 'Debug log file not found'\""
+            RUN_LOGGER.info("Checking debug log in container...")
+            debug_check_result = CLUSTER_MGR.run_command_some_hosts(check_debug_cmd, nnodes, 30)
+            if len(debug_check_result) == 0:
+                RUN_LOGGER.info("Container debug check completed")
+            else:
+                RUN_LOGGER.warning("Container debug check failed")
 
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
