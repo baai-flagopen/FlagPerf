@@ -212,7 +212,8 @@ def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes)
     '''Start containers using custom docker command.'''
     # Replace {CONTAINER_NAME} placeholder with actual container name if exists
     final_cmd = custom_docker_cmd.replace("{CONTAINER_NAME}", container_name)
-
+    # 进入自定义流程
+    RUN_LOGGER.debug("······················进入自定义流程·······················")
     # If no placeholder and no --name in command, add container name
     if "{CONTAINER_NAME}" not in custom_docker_cmd and "--name" not in custom_docker_cmd:
         # Add container name before the image name (assuming format: docker run [options] image [cmd])
