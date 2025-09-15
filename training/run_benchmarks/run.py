@@ -346,8 +346,6 @@ def stop_monitors_in_cluster(dp_path, nnodes):
 def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
                            count, curr_log_path):
     '''Start tasks in cluster, and NOT wait.'''
-    RUN_LOGGER.info("🎬🎬🎬 [训练启动] 开始在容器中启动训练任务！🎬🎬🎬")
-    RUN_LOGGER.info("📊 [容器信息] 目标容器: " + container_name)
     nnodes = case_config["nnodes"]
     framework_sub_path = case_config["framework"]
     if "_" in framework_sub_path:
@@ -358,61 +356,34 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
         "config/environment_variables.sh")
     framework = case_config["framework"].split("_")[0]
     
-    # 创建增强的启动命令，类似算子测试版本的改动
-    abs_log_path = os.path.join(dp_path, curr_log_path)
-    debug_log_path = curr_log_path + "/training_debug.log"
-    
     if (os.path.isfile(env_file)):
         start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -t 600 -r \"python3 --version"
-        
-        # 创建日志目录并记录调试信息
-        start_cmd += " && mkdir -p " + curr_log_path \
-                     + " && echo 'Starting training task at '$(date) > " + debug_log_path \
-                     + " && source " + env_file \
-                     + " > " + curr_log_path + "/source_env.log.txt 2>&1" \
-                     + " && echo 'Environment sourced, starting training' >> " + debug_log_path \
-                     + " && python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
-                     + framework + "/start_" + framework + "_task.py " \
-                     + base_args + " --round " + str(count)
-        
-        # 添加可见设备环境变量参数（在Python脚本参数中）
-        if tc.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
-            start_cmd += " --visible_dev_env " + tc.ACCE_VISIBLE_DEVICE_ENV_NAME
-        
-        # 结束命令，让 cluster_manager 插入分布式参数
-        start_cmd += "\""
+                + container_name + " -d -r \"source " + env_file \
+                + " > " + curr_log_path + "/source_env.log.txt " \
+                + "2>&1 && " \
+                + "python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
+                + framework + "/start_" + framework + "_task.py " \
+                + base_args + " --round " + str(count)
     else:
         start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -t 600 -r \"python3 --version" \
-                + " && mkdir -p " + curr_log_path \
-                + " && echo 'Starting training task no env at '$(date) > " + debug_log_path \
-                + " && python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
+                + container_name + " -d -r \"" \
+                + "python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
                 + framework + "/start_" + framework + "_task.py " \
                 + base_args + " --round " + str(count)
-        
-        # 添加可见设备环境变量参数（在Python脚本参数中）
-        if tc.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
-            start_cmd += " --visible_dev_env " + tc.ACCE_VISIBLE_DEVICE_ENV_NAME
-        
-        # 结束命令，让 cluster_manager 插入分布式参数
-        start_cmd += "\""
     
-    RUN_LOGGER.info("🚀 [训练命令] 准备执行训练启动命令...")
-    RUN_LOGGER.info("📋 [训练参数] " + base_args)
-    RUN_LOGGER.info("💡 [重要提示] 如果您使用了自定义Docker命令，训练将在您指定的容器中运行")
-    RUN_LOGGER.debug("Run cmd in the cluster to start training tasks, cmd=" + start_cmd)
+    if tc.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
+        start_cmd += " --visible_dev_env " \
+                     + tc.ACCE_VISIBLE_DEVICE_ENV_NAME
+    start_cmd += " \""
     
-    # 执行命令并检查结果  
-    RUN_LOGGER.info("⚡ [执行中] 正在集群中启动训练任务...")
+    RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
     failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 15, "training")
     
-    if failed_hosts and len(failed_hosts) > 0:
-        RUN_LOGGER.error(f"❌ [训练启动失败] 以下主机的训练命令执行失败: {list(failed_hosts.keys())}")
-    else:
-        RUN_LOGGER.info("✅ [训练启动成功] 训练命令已在所有主机上成功启动！")
+    if len(failed_hosts) != 0:
+        RUN_LOGGER.error("Hosts that can't start tasks: " +
+                         ",".join(failed_hosts.keys()))
     
     # Wait a moment for starting tasks.
     time.sleep(60)
@@ -421,35 +392,19 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
 def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
     '''wait all the processes of start_xxx_task.py finished.
     '''
-    RUN_LOGGER.info("⏳ [等待训练] 训练任务已启动，正在等待完成...")
-    RUN_LOGGER.info("📍 [容器监控] 正在监控容器: " + container_name)
-    RUN_LOGGER.info("💡 [提示] 如果您使用了自定义Docker命令，训练正在您指定的容器环境中运行")
-    # 设置最大等待时间（训练任务通常需要更长时间）
-    max_wait_time = 3600  # 1小时超时
-    start_wait_time = time.time()
-    
     check_cmd = "cd " + dp_path + "; " + sys.executable \
                 + " ../utils/container_manager.py -o pidrunning -c " \
                 + container_name + " -f " + pid_file_path
 
     RUN_LOGGER.debug(
         "Run cmd to check whether the training tasks is running: " + check_cmd)
-    
-    # 首先等待任务启动
-    time.sleep(10)
-    
-    while time.time() - start_wait_time < max_wait_time:
+    while True:
         bad_hosts = CLUSTER_MGR.run_command_some_hosts(check_cmd,
                                                        nnodes,
                                                        no_log=True)
         if len(bad_hosts) == nnodes:
             break
-        time.sleep(30)
-    
-    if time.time() - start_wait_time >= max_wait_time:
-        RUN_LOGGER.warning("Training task wait timeout reached, proceeding with cleanup")
-    
-    RUN_LOGGER.info("Training tasks finished in the cluster")
+        time.sleep(10)
 
 
 def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
