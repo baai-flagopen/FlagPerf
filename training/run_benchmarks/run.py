@@ -383,7 +383,7 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
                 + " ../utils/container_manager.py -o runcmdin -c " \
                 + container_name + " -d -t 600 -r \"python3 --version" \
                 + " && mkdir -p " + tc.FLAGPERF_PATH + "/" + curr_log_path \
-                + " && echo 'Starting training task (no env) at '$(date) > " + debug_log_path \
+                + " && echo 'Starting training task no env at '$(date) > " + debug_log_path \
                 + " && python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
                 + framework + "/start_" + framework + "_task.py " \
                 + base_args + " --round " + str(count) \
