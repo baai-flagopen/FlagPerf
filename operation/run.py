@@ -291,24 +291,29 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                      + " > " + abs_log_path + "/env.log.txt " \
                      + "2>&1"
 
-    # 确保日志目录存在并添加详细的调试信息
-    start_cmd += " && echo 'Current working directory: '$(pwd)" \
-                 + " && echo 'Python version: '$(python3 --version)" \
-                 + " && echo 'Available Python modules:' && python3 -c 'import sys; print(sys.path)'" \
-                 + " && mkdir -p " + abs_log_path + "/" + case + "/localhost_noderank0" \
-                 + " && echo 'Log directory created: " + abs_log_path + "/" + case + "/localhost_noderank0'" \
-                 + " && ls -la " + abs_log_path + "/" + case + "/localhost_noderank0" \
-                 + " && echo 'Checking container_main.py exists: '$(ls -la " + config.FLAGPERF_PATH + "/container_main.py)" \
-                 + " && echo 'Starting container_main.py with args: " + base_args + "'" \
-                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args \
-                 + " && echo 'container_main.py completed successfully' " \
-                 + " && ls -la " + abs_log_path + "/" + case + "/localhost_noderank0" \
-                 + " || (echo 'container_main.py failed with exit code $?' " \
-                 + " && echo 'Checking if loguru is available:' && python3 -c 'import loguru; print(\"loguru available\")' " \
-                 + " && echo 'Checking container_main.py syntax:' && python3 -m py_compile " + config.FLAGPERF_PATH + "/container_main.py" \
-                 + " && echo 'Final directory contents:' && ls -la " + abs_log_path + "/" + case + "/localhost_noderank0)"
+    # 简化诊断并确保日志能够生成
+    debug_log_path = os.path.join(dp_path, curr_log_path, "container_debug.log")
+    start_cmd += " && echo 'Container started at: '$(date) > " + debug_log_path \
+                 + " && echo 'Working directory: '$(pwd) >> " + debug_log_path \
+                 + " && echo 'User: '$(whoami) >> " + debug_log_path \
+                 + " && echo 'Python executable: '$(which python3) >> " + debug_log_path \
+                 + " && python3 --version >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'FlagPerf path: " + config.FLAGPERF_PATH + "' >> " + debug_log_path \
+                 + " && ls -la " + config.FLAGPERF_PATH + " >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Container main exists:' >> " + debug_log_path \
+                 + " && ls -la " + config.FLAGPERF_PATH + "/container_main.py >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Testing loguru import:' >> " + debug_log_path \
+                 + " && python3 -c 'import loguru; print(\"loguru imported successfully\")' >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Creating log directory:' >> " + debug_log_path \
+                 + " && mkdir -p " + abs_log_path + "/" + case + "/localhost_noderank0 >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Log directory created, contents:' >> " + debug_log_path \
+                 + " && ls -la " + abs_log_path + "/" + case + "/ >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Executing container_main.py with args: " + base_args + "' >> " + debug_log_path \
+                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args + " >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'container_main.py completed successfully' >> " + debug_log_path \
+                 + " || echo 'container_main.py failed with exit code: '$? >> " + debug_log_path
 
-    start_cmd += " > " + abs_log_path + "/container_execution.log.txt 2>&1\""
+    start_cmd += " \""
 
     RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
     RUN_LOGGER.info(f"Container main args: {base_args}")
@@ -786,24 +791,37 @@ def main():
                 else:
                     RUN_LOGGER.warning(f"✗ Missing {log_file} for {host}")
             
-            # 检查容器执行日志
-            container_exec_log = os.path.join(case_log_dir, "container_execution.log.txt")
-            if os.path.exists(container_exec_log):
-                RUN_LOGGER.info(f"✓ Found container execution log for {host}")
+            # 检查容器调试日志
+            container_debug_log = os.path.join(curr_log_path, "container_debug.log")
+            if os.path.exists(container_debug_log):
+                RUN_LOGGER.info(f"✓ Found container debug log for {host}")
                 try:
-                    with open(container_exec_log, 'r') as f:
+                    with open(container_debug_log, 'r') as f:
                         content = f.read().strip()
                         if content:
-                            RUN_LOGGER.info(f"Container execution log content (last 20 lines):")
+                            RUN_LOGGER.info(f"Container debug log content:")
                             lines = content.split('\n')
-                            for line in lines[-20:]:  # 显示最后20行
+                            for line in lines:  # 显示所有行
                                 RUN_LOGGER.info(f"  {line}")
                         else:
-                            RUN_LOGGER.warning("Container execution log is empty")
+                            RUN_LOGGER.warning("Container debug log is empty")
                 except Exception as e:
-                    RUN_LOGGER.warning(f"Cannot read container execution log: {e}")
+                    RUN_LOGGER.warning(f"Cannot read container debug log: {e}")
             else:
-                RUN_LOGGER.warning(f"✗ Missing container execution log for {host}")
+                RUN_LOGGER.warning(f"✗ Missing container debug log for {host}")
+                # 尝试查找其他可能的日志位置
+                alt_debug_log = os.path.join(case_log_dir, "container_debug.log")
+                if os.path.exists(alt_debug_log):
+                    RUN_LOGGER.info(f"✓ Found alternative container debug log")
+                    try:
+                        with open(alt_debug_log, 'r') as f:
+                            content = f.read().strip()
+                            if content:
+                                RUN_LOGGER.info(f"Alternative debug log content:")
+                                for line in content.split('\n'):
+                                    RUN_LOGGER.info(f"  {line}")
+                    except Exception as e:
+                        RUN_LOGGER.warning(f"Cannot read alternative debug log: {e}")
             
             # 检查是否有安装日志可以提供线索
             install_logs = ["module_install.log.txt", "operation_pip_install.log.txt", "case_pip_install.log.txt"]
