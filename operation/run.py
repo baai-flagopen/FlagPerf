@@ -291,15 +291,24 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                      + " > " + abs_log_path + "/env.log.txt " \
                      + "2>&1"
 
-    # 确保日志目录存在并添加调试信息
-    start_cmd += " && mkdir -p " + abs_log_path + "/" + case + "/localhost_noderank0" \
+    # 确保日志目录存在并添加详细的调试信息
+    start_cmd += " && echo 'Current working directory: '$(pwd)" \
+                 + " && echo 'Python version: '$(python3 --version)" \
+                 + " && echo 'Available Python modules:' && python3 -c 'import sys; print(sys.path)'" \
+                 + " && mkdir -p " + abs_log_path + "/" + case + "/localhost_noderank0" \
                  + " && echo 'Log directory created: " + abs_log_path + "/" + case + "/localhost_noderank0'" \
-                 + " && echo 'Starting container_main.py...' " \
-                 + "&& python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args \
+                 + " && ls -la " + abs_log_path + "/" + case + "/localhost_noderank0" \
+                 + " && echo 'Checking container_main.py exists: '$(ls -la " + config.FLAGPERF_PATH + "/container_main.py)" \
+                 + " && echo 'Starting container_main.py with args: " + base_args + "'" \
+                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args \
                  + " && echo 'container_main.py completed successfully' " \
-                 + "|| echo 'container_main.py failed with exit code $?'"
+                 + " && ls -la " + abs_log_path + "/" + case + "/localhost_noderank0" \
+                 + " || (echo 'container_main.py failed with exit code $?' " \
+                 + " && echo 'Checking if loguru is available:' && python3 -c 'import loguru; print(\"loguru available\")' " \
+                 + " && echo 'Checking container_main.py syntax:' && python3 -m py_compile " + config.FLAGPERF_PATH + "/container_main.py" \
+                 + " && echo 'Final directory contents:' && ls -la " + abs_log_path + "/" + case + "/localhost_noderank0)"
 
-    start_cmd += " \""
+    start_cmd += " > " + abs_log_path + "/container_execution.log.txt 2>&1\""
 
     RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
     RUN_LOGGER.info(f"Container main args: {base_args}")
@@ -776,18 +785,38 @@ def main():
                     RUN_LOGGER.info(f"✓ Found {log_file} for {host}")
                 else:
                     RUN_LOGGER.warning(f"✗ Missing {log_file} for {host}")
-                    # 检查是否有安装日志可以提供线索
-                    install_logs = ["module_install.log.txt", "operation_pip_install.log.txt", "case_pip_install.log.txt"]
-                    for install_log in install_logs:
-                        install_log_path = os.path.join(host_log_dir, install_log)
-                        if os.path.exists(install_log_path):
-                            try:
-                                with open(install_log_path, 'r') as f:
-                                    content = f.read().strip()
-                                    if content:
-                                        RUN_LOGGER.info(f"Install log {install_log}: {content}")
-                            except Exception as e:
-                                RUN_LOGGER.warning(f"Cannot read {install_log_path}: {e}")
+            
+            # 检查容器执行日志
+            container_exec_log = os.path.join(case_log_dir, "container_execution.log.txt")
+            if os.path.exists(container_exec_log):
+                RUN_LOGGER.info(f"✓ Found container execution log for {host}")
+                try:
+                    with open(container_exec_log, 'r') as f:
+                        content = f.read().strip()
+                        if content:
+                            RUN_LOGGER.info(f"Container execution log content (last 20 lines):")
+                            lines = content.split('\n')
+                            for line in lines[-20:]:  # 显示最后20行
+                                RUN_LOGGER.info(f"  {line}")
+                        else:
+                            RUN_LOGGER.warning("Container execution log is empty")
+                except Exception as e:
+                    RUN_LOGGER.warning(f"Cannot read container execution log: {e}")
+            else:
+                RUN_LOGGER.warning(f"✗ Missing container execution log for {host}")
+            
+            # 检查是否有安装日志可以提供线索
+            install_logs = ["module_install.log.txt", "operation_pip_install.log.txt", "case_pip_install.log.txt"]
+            for install_log in install_logs:
+                install_log_path = os.path.join(host_log_dir, install_log)
+                if os.path.exists(install_log_path):
+                    try:
+                        with open(install_log_path, 'r') as f:
+                            content = f.read().strip()
+                            if content:
+                                RUN_LOGGER.info(f"Install log {install_log}: {content}")
+                    except Exception as e:
+                        RUN_LOGGER.warning(f"Cannot read {install_log_path}: {e}")
 
         RUN_LOGGER.info("5) Training tasks end in the cluster...")
         RUN_LOGGER.info("6) Clean container environments in cluster...")
