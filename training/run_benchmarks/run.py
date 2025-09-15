@@ -712,14 +712,6 @@ def main():
     # Parse command line arguments
     args = parse_args()
     custom_docker_cmd = args.custom_docker_cmd
-    
-    if custom_docker_cmd is not None:
-        RUN_LOGGER.info("🎯🎯🎯 [重要] 检测到用户指定了自定义Docker命令！🎯🎯🎯")
-        RUN_LOGGER.info("🔍 [自定义命令] " + custom_docker_cmd)
-        RUN_LOGGER.info("⚠️  [流程提醒] FlagPerf将使用您的自定义Docker命令替代默认容器配置")
-        RUN_LOGGER.info("💡 [提示] 请确保您的Docker命令包含必要的挂载和网络配置")
-    else:
-        RUN_LOGGER.info("📦 [标准模式] 使用FlagPerf默认的Docker容器配置")
 
     # Set logger first
     timestamp_log_dir = "run" + time.strftime("%Y%m%d%H%M%S", time.localtime())
@@ -729,6 +721,15 @@ def main():
                     tc.FLAGPERF_LOG_LEVEL,
                     "both",
                     log_caller=True)
+    
+    # 现在可以安全使用logger了
+    if custom_docker_cmd is not None:
+        RUN_LOGGER.info("🎯🎯🎯 [重要] 检测到用户指定了自定义Docker命令！🎯🎯🎯")
+        RUN_LOGGER.info("🔍 [自定义命令] " + custom_docker_cmd)
+        RUN_LOGGER.info("⚠️  [流程提醒] FlagPerf将使用您的自定义Docker命令替代默认容器配置")
+        RUN_LOGGER.info("💡 [提示] 请确保您的Docker命令包含必要的挂载和网络配置")
+    else:
+        RUN_LOGGER.info("📦 [标准模式] 使用FlagPerf默认的Docker容器配置")
 
     RUN_LOGGER.info("======== Step 1: Check environment and configs. ========")
     RUN_LOGGER.info("Initialize logger with log path: " + curr_log_path +
