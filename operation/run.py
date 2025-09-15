@@ -307,32 +307,21 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                      + " > " + abs_log_path + "/env.log.txt " \
                      + "2>&1"
 
-    # 简化诊断并确保日志能够生成
+    # 简化诊断，先测试基本的文件操作
     debug_log_path = os.path.join(dp_path, curr_log_path, "container_debug.log")
-    start_cmd += " && echo '=== Container Execution Debug Log ===' > " + debug_log_path \
-                 + " && echo 'Container started at: '$(date) >> " + debug_log_path \
-                 + " && echo 'Container ID: '$(hostname) >> " + debug_log_path \
+    start_cmd += " && echo 'Container execution started at: '$(date) > " + debug_log_path \
                  + " && echo 'Working directory: '$(pwd) >> " + debug_log_path \
                  + " && echo 'User: '$(whoami) >> " + debug_log_path \
-                 + " && echo 'Environment variables:' >> " + debug_log_path \
-                 + " && env | grep -E '(PATH|PYTHON|CUDA)' >> " + debug_log_path \
-                 + " && echo 'Python executable: '$(which python3) >> " + debug_log_path \
-                 + " && python3 --version >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Available disk space:' >> " + debug_log_path \
-                 + " && df -h >> " + debug_log_path \
-                 + " && echo 'FlagPerf path: " + config.FLAGPERF_PATH + "' >> " + debug_log_path \
-                 + " && ls -la " + config.FLAGPERF_PATH + " >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Container main exists:' >> " + debug_log_path \
+                 + " && echo 'Python version: '$(python3 --version 2>&1) >> " + debug_log_path \
+                 + " && echo 'FlagPerf path check:' >> " + debug_log_path \
                  + " && ls -la " + config.FLAGPERF_PATH + "/container_main.py >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Testing loguru import:' >> " + debug_log_path \
-                 + " && python3 -c 'import loguru; print(\"loguru imported successfully\")' >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Testing loguru:' >> " + debug_log_path \
+                 + " && python3 -c 'import loguru; print(\"loguru OK\")' >> " + debug_log_path + " 2>&1" \
                  + " && echo 'Creating log directory:' >> " + debug_log_path \
                  + " && mkdir -p " + abs_log_path + "/" + case + "/localhost_noderank0 >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Log directory created, contents:' >> " + debug_log_path \
-                 + " && ls -la " + abs_log_path + "/" + case + "/ >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Executing container_main.py with args: " + base_args + "' >> " + debug_log_path \
+                 + " && echo 'Starting container_main.py...' >> " + debug_log_path \
                  + " && python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args + " >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'container_main.py completed successfully' >> " + debug_log_path \
+                 + " && echo 'container_main.py completed' >> " + debug_log_path \
                  + " || echo 'container_main.py failed with exit code: '$? >> " + debug_log_path
 
     start_cmd += " \""
@@ -376,21 +365,26 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
     RUN_LOGGER.debug("Checking running Docker containers: " + docker_status_cmd)
     CLUSTER_MGR.run_command_some_hosts(docker_status_cmd, nnodes, 30)
     
-    # 尝试停止相关容器（如果存在）
-    try:
-        stop_related_cmd = f"docker stop {container_name}"
-        RUN_LOGGER.debug("Attempting to stop existing container: " + stop_related_cmd)
-        CLUSTER_MGR.run_command_some_hosts(stop_related_cmd, nnodes, 15)
-    except:
-        pass  # 容器可能不存在，忽略错误
+    # 检查容器是否存在，然后清理
+    check_container_cmd = f"docker ps -aq --filter name={container_name}"
+    RUN_LOGGER.debug("Checking if container exists: " + check_container_cmd)
+    existing_result = CLUSTER_MGR.run_command_some_hosts(check_container_cmd, nnodes, 15)
     
-    # 尝试删除相关容器（如果存在）
-    try:
-        remove_related_cmd = f"docker rm {container_name}"
-        RUN_LOGGER.debug("Attempting to remove existing container: " + remove_related_cmd)
+    # 如果容器存在（命令成功执行），则进行清理
+    if len(existing_result) == 0:  # 没有失败的主机，说明命令执行成功
+        RUN_LOGGER.info("Found existing containers, cleaning up...")
+        
+        # 停止容器
+        stop_related_cmd = f"docker stop {container_name} 2>/dev/null || true"
+        RUN_LOGGER.debug("Stopping existing container: " + stop_related_cmd)
+        CLUSTER_MGR.run_command_some_hosts(stop_related_cmd, nnodes, 15)
+        
+        # 删除容器
+        remove_related_cmd = f"docker rm {container_name} 2>/dev/null || true"
+        RUN_LOGGER.debug("Removing existing container: " + remove_related_cmd)
         CLUSTER_MGR.run_command_some_hosts(remove_related_cmd, nnodes, 15)
-    except:
-        pass  # 容器可能不存在，忽略错误
+    else:
+        RUN_LOGGER.info("No existing containers found, proceeding with fresh start.")
 
     RUN_LOGGER.info("b) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
@@ -429,6 +423,19 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
     verify_cmd = f"docker ps --filter name={container_name}"
     RUN_LOGGER.debug("Verifying container status: " + verify_cmd)
     CLUSTER_MGR.run_command_some_hosts(verify_cmd, nnodes, 15)
+    
+    # 测试容器是否响应命令
+    RUN_LOGGER.info("Testing container command execution...")
+    test_cmd = "cd " + dp_path + " && " + sys.executable \
+               + " ../utils/container_manager.py -o runcmdin -c " \
+               + container_name + " -d -r \"echo 'Container test: '$(date) && whoami && pwd\""
+    RUN_LOGGER.debug("Container test command: " + test_cmd)
+    test_result = CLUSTER_MGR.run_command_some_hosts(test_cmd, nnodes, 30)
+    
+    if len(test_result) == 0:
+        RUN_LOGGER.info("✓ Container responds to commands successfully")
+    else:
+        RUN_LOGGER.warning("✗ Container command test failed on hosts: " + ",".join(test_result.keys()))
 
     RUN_LOGGER.info("d) Start monitors......")
     start_monitors_in_cluster(dp_path, case_log_dir, nnodes, config)
@@ -823,6 +830,28 @@ def main():
 
         start_tasks_in_cluster(dp_path, container_name, config, base_args,
                                curr_log_path, case)
+
+        # 立即检查容器状态和日志文件
+        RUN_LOGGER.info("2.1) Checking immediate container status...")
+        immediate_check_cmd = f"docker ps --filter name={container_name} && echo '--- Container logs ---' && docker logs {container_name} --tail 10"
+        RUN_LOGGER.debug("Immediate container check: " + immediate_check_cmd)
+        CLUSTER_MGR.run_command_some_hosts(immediate_check_cmd, nnodes, 15)
+        
+        # 检查调试日志是否已生成
+        debug_log_check = os.path.join(dp_path, curr_log_path, "container_debug.log")
+        if os.path.exists(debug_log_check):
+            RUN_LOGGER.info("✓ Debug log file created immediately")
+            try:
+                with open(debug_log_check, 'r') as f:
+                    content = f.read().strip()
+                    if content:
+                        RUN_LOGGER.info("Debug log content (first 10 lines):")
+                        for line in content.split('\n')[:10]:
+                            RUN_LOGGER.info(f"  {line}")
+            except Exception as e:
+                RUN_LOGGER.warning(f"Cannot read debug log: {e}")
+        else:
+            RUN_LOGGER.warning("✗ Debug log file not created immediately")
 
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
