@@ -243,9 +243,22 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                 + container_name + " -d -r \"echo Hello FlagPerf" \
                 + " > " + abs_log_path + "/hello.log.txt"
 
+    # 检查并安装必需的模块，确保container_main.py能正常运行
+    start_cmd += " && (python3 -c 'import loguru' 2>/dev/null " \
+                 + "|| (echo 'Installing loguru module...' " \
+                 + "&& pip install loguru >> " + abs_log_path + "/module_install.log.txt 2>&1))"
+
+    # 首先安装operation目录下的基础依赖
+    operation_req_file = os.path.join(dp_path, "requirements.txt")
+    if os.path.isfile(operation_req_file):
+        start_cmd += " && pip install -r " + operation_req_file \
+                     + " > " + abs_log_path + "/operation_pip_install.log.txt " \
+                     + "2>&1"
+
+    # 然后安装特定case的依赖
     if os.path.isfile(req_file):
         start_cmd += " && pip install -r " + req_file \
-                     + " > " + abs_log_path + "/pip_install.log.txt " \
+                     + " > " + abs_log_path + "/case_pip_install.log.txt " \
                      + "2>&1"
 
     if os.path.isfile(env_shell):
@@ -655,13 +668,17 @@ def main():
     collect_and_merge_logs(os.path.join(dp_path, curr_log_path), cases, nnodes)
 
     RUN_LOGGER.info("2) summary logs")
-    key_logs = summary_logs(config, case_log_dir)
-    RUN_LOGGER.debug(key_logs)
-    jsonfile = os.path.join(dp_path, curr_log_path, "detail_result.json")
-    json.dump(key_logs, open(jsonfile, "w"))
+    # 使用最后一个case的log目录，如果没有成功的case则跳过summary
+    if 'case_log_dir' in locals():
+        key_logs = summary_logs(config, case_log_dir)
+        RUN_LOGGER.debug(key_logs)
+        jsonfile = os.path.join(dp_path, curr_log_path, "detail_result.json")
+        json.dump(key_logs, open(jsonfile, "w"))
 
-    RUN_LOGGER.info("3) analysis logs")
-    analysis_log(key_logs)
+        RUN_LOGGER.info("3) analysis logs")
+        analysis_log(key_logs)
+    else:
+        RUN_LOGGER.warning("No successful test cases to analyze.")
 
 
 if __name__ == '__main__':
