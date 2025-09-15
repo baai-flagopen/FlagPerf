@@ -134,20 +134,36 @@ def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes)
 
 
 def stop_container_in_cluster(dp_path, container_name, nnodes):
-    '''Call CLUSTER_MGR tool to stop containers.'''
+    '''Call CLUSTER_MGR tool to stop containers with enhanced cleanup.'''
+    
+    # 首先尝试正常停止容器
     stop_cont_cmd = "cd " + dp_path + " && " + sys.executable \
                     + " ../utils/container_manager.py -o stop" \
                     + " -c " + container_name
     RUN_LOGGER.debug("Run cmd to stop container(s) in the cluster:" +
                      stop_cont_cmd)
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes,
-                                                      60)
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes, 60)
+    
+    # 如果正常停止失败，尝试强制清理
     if len(failed_hosts) != 0:
-        RUN_LOGGER.warning("Hosts that stop container " + container_name +
-                           " failed:" + ",".join(failed_hosts.keys()) +
-                           " Continue.")
-        return False
-    RUN_LOGGER.info("All containers stoped in the cluster")
+        RUN_LOGGER.warning("Normal container stop failed, attempting force cleanup...")
+        
+        # 强制停止和删除容器
+        force_cleanup_cmd = f"docker ps -a | grep {container_name} | awk '{{print $1}}' | xargs -r docker rm -f"
+        RUN_LOGGER.debug("Force cleanup cmd: " + force_cleanup_cmd)
+        
+        cleanup_failed = CLUSTER_MGR.run_command_some_hosts(force_cleanup_cmd, nnodes, 30)
+        
+        # 额外清理：删除所有相关容器
+        extra_cleanup_cmd = f"docker container prune -f && docker ps -a"
+        CLUSTER_MGR.run_command_some_hosts(extra_cleanup_cmd, nnodes, 30)
+        
+        if len(cleanup_failed) != 0:
+            RUN_LOGGER.warning("Hosts that force cleanup failed:" + 
+                             ",".join(cleanup_failed.keys()) + " Continue.")
+            return False
+    
+    RUN_LOGGER.info("All containers stopped and cleaned up in the cluster")
     return True
 
 
@@ -293,11 +309,17 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     # 简化诊断并确保日志能够生成
     debug_log_path = os.path.join(dp_path, curr_log_path, "container_debug.log")
-    start_cmd += " && echo 'Container started at: '$(date) > " + debug_log_path \
+    start_cmd += " && echo '=== Container Execution Debug Log ===' > " + debug_log_path \
+                 + " && echo 'Container started at: '$(date) >> " + debug_log_path \
+                 + " && echo 'Container ID: '$(hostname) >> " + debug_log_path \
                  + " && echo 'Working directory: '$(pwd) >> " + debug_log_path \
                  + " && echo 'User: '$(whoami) >> " + debug_log_path \
+                 + " && echo 'Environment variables:' >> " + debug_log_path \
+                 + " && env | grep -E '(PATH|PYTHON|CUDA)' >> " + debug_log_path \
                  + " && echo 'Python executable: '$(which python3) >> " + debug_log_path \
                  + " && python3 --version >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Available disk space:' >> " + debug_log_path \
+                 + " && df -h >> " + debug_log_path \
                  + " && echo 'FlagPerf path: " + config.FLAGPERF_PATH + "' >> " + debug_log_path \
                  + " && ls -la " + config.FLAGPERF_PATH + " >> " + debug_log_path + " 2>&1" \
                  + " && echo 'Container main exists:' >> " + debug_log_path \
@@ -347,15 +369,32 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
     '''Prepare containers environments in the cluster. It will start
        containers, setup environments, start monitors, and clear caches.'''
 
-    RUN_LOGGER.info("a) Stop old container(s) first.")
+    RUN_LOGGER.info("a) Check and clean Docker environment first.")
+    
+    # 检查Docker状态
+    docker_status_cmd = "docker ps -a && echo '=== Docker system info ===' && docker system df"
+    RUN_LOGGER.debug("Checking Docker status: " + docker_status_cmd)
+    CLUSTER_MGR.run_command_some_hosts(docker_status_cmd, nnodes, 30)
+    
+    # 强制清理所有相关容器（包括可能的僵尸容器）
+    cleanup_cmd = f"docker ps -aq --filter name={container_name} | xargs -r docker rm -f"
+    RUN_LOGGER.debug("Force cleanup existing containers: " + cleanup_cmd)
+    CLUSTER_MGR.run_command_some_hosts(cleanup_cmd, nnodes, 30)
+    
+    # 清理无用的容器和网络
+    prune_cmd = "docker container prune -f && docker network prune -f"
+    RUN_LOGGER.debug("Pruning unused resources: " + prune_cmd)
+    CLUSTER_MGR.run_command_some_hosts(prune_cmd, nnodes, 30)
+
+    RUN_LOGGER.info("b) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
-    RUN_LOGGER.info("b) Start container(s) in the cluster.")
+    RUN_LOGGER.info("c) Start container(s) in the cluster.")
 
     if custom_docker_cmd is not None:
         # Use custom docker command
         RUN_LOGGER.info("Using custom docker command: " + custom_docker_cmd)
         if not start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
-            RUN_LOGGER.error("b) Start custom container in the cluster......"
+            RUN_LOGGER.error("c) Start custom container in the cluster......"
                              "[FAILED]. Ignore this round.")
             return False
     else:
@@ -374,15 +413,20 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
 
         if not start_container_in_cluster(dp_path, container_start_args,
                                           container_name, image_name, nnodes):
-            RUN_LOGGER.error("b) Start container in the cluster......"
+            RUN_LOGGER.error("c) Start container in the cluster......"
                              "[FAILED]. Ignore this round.")
             return False
 
-    RUN_LOGGER.info("b) Start container(s) in the cluster.......[SUCCESS]")
+    RUN_LOGGER.info("c) Start container(s) in the cluster.......[SUCCESS]")
+    
+    # 验证容器是否真的启动成功
+    verify_cmd = f"docker ps --filter name={container_name} --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'"
+    RUN_LOGGER.debug("Verifying container status: " + verify_cmd)
+    CLUSTER_MGR.run_command_some_hosts(verify_cmd, nnodes, 15)
 
-    RUN_LOGGER.info("c) Start monitors......")
+    RUN_LOGGER.info("d) Start monitors......")
     start_monitors_in_cluster(dp_path, case_log_dir, nnodes, config)
-    RUN_LOGGER.info("d) Clear system caches if it set......")
+    RUN_LOGGER.info("e) Clear system caches if it set......")
     clear_caches_cluster(config.CLEAR_CACHES, nnodes)
     return True
 
