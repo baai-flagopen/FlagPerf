@@ -1,4 +1,4 @@
-FROM flagperf-operation-metax-ngctorch2403:v1.0
+FROM flagperf-operation-metax-ngctorch2403:t_v0.1
 RUN /bin/bash -c "pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple"
 RUN /bin/bash -c "uname -a"
 RUN /bin/bash -c alias python3=python
