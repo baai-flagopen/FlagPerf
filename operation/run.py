@@ -134,36 +134,20 @@ def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes)
 
 
 def stop_container_in_cluster(dp_path, container_name, nnodes):
-    '''Call CLUSTER_MGR tool to stop containers with enhanced cleanup.'''
-    
-    # 首先尝试正常停止容器
+    '''Call CLUSTER_MGR tool to stop containers.'''
     stop_cont_cmd = "cd " + dp_path + " && " + sys.executable \
                     + " ../utils/container_manager.py -o stop" \
                     + " -c " + container_name
     RUN_LOGGER.debug("Run cmd to stop container(s) in the cluster:" +
                      stop_cont_cmd)
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes, 60)
-    
-    # 如果正常停止失败，尝试强制清理
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes,
+                                                      60)
     if len(failed_hosts) != 0:
-        RUN_LOGGER.warning("Normal container stop failed, attempting force cleanup...")
-        
-        # 强制停止和删除容器
-        force_cleanup_cmd = f"docker ps -aq --filter name={container_name} | xargs -r docker rm -f"
-        RUN_LOGGER.debug("Force cleanup cmd: " + force_cleanup_cmd)
-        
-        cleanup_failed = CLUSTER_MGR.run_command_some_hosts(force_cleanup_cmd, nnodes, 30)
-        
-        # 额外清理：删除所有相关容器
-        extra_cleanup_cmd = "docker container prune -f"
-        CLUSTER_MGR.run_command_some_hosts(extra_cleanup_cmd, nnodes, 30)
-        
-        if len(cleanup_failed) != 0:
-            RUN_LOGGER.warning("Hosts that force cleanup failed:" + 
-                             ",".join(cleanup_failed.keys()) + " Continue.")
-            return False
-    
-    RUN_LOGGER.info("All containers stopped and cleaned up in the cluster")
+        RUN_LOGGER.warning("Hosts that stop container " + container_name +
+                           " failed:" + ",".join(failed_hosts.keys()) +
+                           " Continue.")
+        return False
+    RUN_LOGGER.info("All containers stoped in the cluster")
     return True
 
 
@@ -254,86 +238,34 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     abs_log_path = os.path.join(dp_path, curr_log_path)
 
-    # 简化命令结构，确保依赖安装成功，设置足够的超时时间
     start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -t 600 -r \"python3 --version"
-
-    # 确保基础依赖安装成功
-    start_cmd += " && (pip3 install loguru || python3 -m pip install loguru || (python3 -m ensurepip --default-pip && pip3 install loguru))"
-    
-    # 确保PyTorch安装成功（对于operation benchmark必需）
-    # 尝试多种安装方式
-    start_cmd += " && echo 'Installing PyTorch...'"
-    start_cmd += " && (python3 -c 'import torch; print(f\"torch already available: {torch.__version__}\")' || ("
-    start_cmd += "echo 'torch not found, installing...' && "
-    start_cmd += "(pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu || "
-    start_cmd += "pip3 install torch torchvision torchaudio || "
-    start_cmd += "pip3 install torch==2.0.1 torchvision torchaudio || "
-    start_cmd += "echo 'All torch installation methods failed')))"
-    
-    # 验证torch安装
-    start_cmd += " && python3 -c 'import torch; print(f\"torch verification successful: {torch.__version__}\")'"
-
-    # 安装依赖文件（如果存在）
-    operation_req_file = os.path.join(dp_path, "requirements.txt")
-    if os.path.isfile(operation_req_file):
-        start_cmd += " && pip3 install -r " + operation_req_file
+                + container_name + " -d -r \"echo Hello FlagPerf" \
+                + " > " + abs_log_path + "/hello.log.txt"
 
     if os.path.isfile(req_file):
-        start_cmd += " && pip3 install -r " + req_file
+        start_cmd += " && pip install -r " + req_file \
+                     + " > " + abs_log_path + "/pip_install.log.txt " \
+                     + "2>&1"
 
     if os.path.isfile(env_shell):
         if config.VENDOR == "iluvatar":
             start_cmd += " && export CUDA_VISIBLE_DEVICES=" + str(config.DEVICE)
-        start_cmd += " && source " + env_shell
+        start_cmd += " && source " + env_shell \
+                     + " > " + abs_log_path + "/env.log.txt " \
+                     + "2>&1"
 
-    # 验证 loguru 安装 - 避免引号冲突
-    start_cmd += " && python3 -c 'import loguru'"
-
-    # 创建日志目录并先运行诊断脚本
-    debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/container_main_debug.log"
-    start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                 + " && echo 'Starting diagnostic test at '$(date) > " + debug_log_path \
-                 + " && python3 " + config.FLAGPERF_PATH + "/test_container.py >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Diagnostic test finished, now starting container_main.py' >> " + debug_log_path \
-                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args \
-                 + " 2>&1 | tee -a " + debug_log_path \
-                 + " && echo 'container_main.py finished with exit code: '$? >> " + debug_log_path
+    start_cmd += " && python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args \
+                 + " > " + abs_log_path + "/container_main.log.txt " \
+                 + "2>&1"
 
     start_cmd += " \""
 
-    RUN_LOGGER.info("=== FULL COMMAND TO EXECUTE ===")
-    RUN_LOGGER.info("Command: " + start_cmd)
-    RUN_LOGGER.info("=== END COMMAND ===")
-    RUN_LOGGER.info(f"Container main args: {base_args}")
-    
-    # 执行命令并检查结果 - 使用普通的run_command_some_hosts避免参数重复
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts(
-        start_cmd, nnodes, 300)  # 增加超时时间到300秒
-    
-    if len(failed_hosts) > 0:
-        RUN_LOGGER.error(f"Command execution failed on hosts: {list(failed_hosts.keys())}")
-        for host, error_code in failed_hosts.items():
-            RUN_LOGGER.error(f"Host {host} failed with error code: {error_code}")
-    else:
-        RUN_LOGGER.info("Command execution started successfully on all hosts")
-    
+    RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
+    CLUSTER_MGR.run_command_some_hosts_distribution_info(
+        start_cmd, nnodes, 15, "base")
     # Wait a moment for starting tasks.
-    time.sleep(10)  # 减少等待时间，因为任务已经在后台运行
-    
-    # 立即检查调试日志是否被创建
-    RUN_LOGGER.info("Checking if debug log was created immediately...")
-    check_debug_cmd = "cd " + dp_path + " && " + sys.executable \
-                     + " ../utils/container_manager.py -o runcmdin -c " \
-                     + container_name + " -d -t 30 -r \"ls -la " + config.FLAGPERF_PATH + "/" + curr_log_path + "/\""
-    RUN_LOGGER.debug("Debug check command: " + check_debug_cmd)
-    debug_check_result = CLUSTER_MGR.run_command_some_hosts(check_debug_cmd, nnodes, 15)
-    
-    if len(debug_check_result) == 0:
-        RUN_LOGGER.info("✓ Debug directory listing command succeeded")
-    else:
-        RUN_LOGGER.warning("✗ Debug directory listing command failed")
+    time.sleep(60)
 
 
 def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
@@ -360,43 +292,15 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
     '''Prepare containers environments in the cluster. It will start
        containers, setup environments, start monitors, and clear caches.'''
 
-    RUN_LOGGER.info("a) Check and clean Docker environment first.")
-    
-    # 检查Docker状态
-    docker_status_cmd = "docker ps"
-    RUN_LOGGER.debug("Checking running Docker containers: " + docker_status_cmd)
-    CLUSTER_MGR.run_command_some_hosts(docker_status_cmd, nnodes, 30)
-    
-    # 检查容器是否存在，然后清理
-    check_container_cmd = f"docker ps -aq --filter name={container_name}"
-    RUN_LOGGER.debug("Checking if container exists: " + check_container_cmd)
-    existing_result = CLUSTER_MGR.run_command_some_hosts(check_container_cmd, nnodes, 15)
-    
-    # 如果容器存在（命令成功执行），则进行清理
-    if len(existing_result) == 0:  # 没有失败的主机，说明命令执行成功
-        RUN_LOGGER.info("Found existing containers, cleaning up...")
-        
-        # 停止容器
-        stop_related_cmd = f"docker stop {container_name} 2>/dev/null || true"
-        RUN_LOGGER.debug("Stopping existing container: " + stop_related_cmd)
-        CLUSTER_MGR.run_command_some_hosts(stop_related_cmd, nnodes, 15)
-        
-        # 删除容器
-        remove_related_cmd = f"docker rm {container_name} 2>/dev/null || true"
-        RUN_LOGGER.debug("Removing existing container: " + remove_related_cmd)
-        CLUSTER_MGR.run_command_some_hosts(remove_related_cmd, nnodes, 15)
-    else:
-        RUN_LOGGER.info("No existing containers found, proceeding with fresh start.")
-
-    RUN_LOGGER.info("b) Stop old container(s) first.")
+    RUN_LOGGER.info("a) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
-    RUN_LOGGER.info("c) Start container(s) in the cluster.")
+    RUN_LOGGER.info("b) Start container(s) in the cluster.")
 
     if custom_docker_cmd is not None:
         # Use custom docker command
         RUN_LOGGER.info("Using custom docker command: " + custom_docker_cmd)
         if not start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
-            RUN_LOGGER.error("c) Start custom container in the cluster......"
+            RUN_LOGGER.error("b) Start custom container in the cluster......"
                              "[FAILED]. Ignore this round.")
             return False
     else:
@@ -415,33 +319,15 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
 
         if not start_container_in_cluster(dp_path, container_start_args,
                                           container_name, image_name, nnodes):
-            RUN_LOGGER.error("c) Start container in the cluster......"
+            RUN_LOGGER.error("b) Start container in the cluster......"
                              "[FAILED]. Ignore this round.")
             return False
 
-    RUN_LOGGER.info("c) Start container(s) in the cluster.......[SUCCESS]")
-    
-    # 验证容器是否真的启动成功
-    verify_cmd = f"docker ps --filter name={container_name}"
-    RUN_LOGGER.debug("Verifying container status: " + verify_cmd)
-    CLUSTER_MGR.run_command_some_hosts(verify_cmd, nnodes, 15)
-    
-    # 测试容器是否响应命令
-    RUN_LOGGER.info("Testing container command execution...")
-    test_cmd = "cd " + dp_path + " && " + sys.executable \
-               + " ../utils/container_manager.py -o runcmdin -c " \
-               + container_name + " -d -t 30 -r \"echo 'Container test: '$(date) && whoami && pwd\""
-    RUN_LOGGER.debug("Container test command: " + test_cmd)
-    test_result = CLUSTER_MGR.run_command_some_hosts(test_cmd, nnodes, 30)
-    
-    if len(test_result) == 0:
-        RUN_LOGGER.info("✓ Container responds to commands successfully")
-    else:
-        RUN_LOGGER.warning("✗ Container command test failed on hosts: " + ",".join(test_result.keys()))
+    RUN_LOGGER.info("b) Start container(s) in the cluster.......[SUCCESS]")
 
-    RUN_LOGGER.info("d) Start monitors......")
+    RUN_LOGGER.info("c) Start monitors......")
     start_monitors_in_cluster(dp_path, case_log_dir, nnodes, config)
-    RUN_LOGGER.info("e) Clear system caches if it set......")
+    RUN_LOGGER.info("d) Clear system caches if it set......")
     clear_caches_cluster(config.CLEAR_CACHES, nnodes)
     return True
 
@@ -504,7 +390,7 @@ def collect_and_merge_logs(curr_log_path, cases, nnodes):
                            curr_log_path)
 
 
-def summary_logs(config, case_log_dir, case_name):
+def summary_logs(config, case_log_dir):
     analysis_module_path = os.path.join("vendors", config.VENDOR,
                                         config.VENDOR + "_analysis")
     analysis_module_path = analysis_module_path.replace("/", ".")
@@ -513,11 +399,9 @@ def summary_logs(config, case_log_dir, case_name):
 
     result = {}
     noderank = 0
-    # 使用安全的case名称
-    safe_case_name = case_name.replace(":", "_")
     for host in config.HOSTS:
         result[host] = {}
-        monitor_log_dir = os.path.join(case_log_dir, safe_case_name,
+        monitor_log_dir = os.path.join(case_log_dir,
                                        host + "_noderank" + str(noderank))
 
         # vendor monitor results like temp/power
@@ -540,29 +424,11 @@ def summary_logs(config, case_log_dir, case_name):
         # FlagPerf Result
         flagperf_result_path = os.path.join(monitor_log_dir,
                                             "operation.log.txt")
-        if os.path.exists(flagperf_result_path):
-            try:
-                with open(flagperf_result_path, 'r') as file:
-                    key_lines = [
-                        line.strip() for line in file if 'FlagPerf Result' in line
-                    ]
-                result[host]["flagperf"] = key_lines
-            except Exception as e:
-                RUN_LOGGER.warning(f"Failed to read {flagperf_result_path}: {e}")
-                result[host]["flagperf"] = [f"ERROR: Failed to read operation log: {e}"]
-        else:
-            RUN_LOGGER.warning(f"Operation log file not found: {flagperf_result_path}")
-            # 检查是否有container_main.log.txt来获取更多信息
-            container_main_log = os.path.join(monitor_log_dir, "container_main.log.txt")
-            if os.path.exists(container_main_log):
-                try:
-                    with open(container_main_log, 'r') as file:
-                        last_lines = file.readlines()[-10:]  # 读取最后10行
-                    result[host]["flagperf"] = [f"ERROR: operation.log.txt not found. Container log tail: {' '.join([line.strip() for line in last_lines])}"]
-                except Exception as e:
-                    result[host]["flagperf"] = [f"ERROR: operation.log.txt not found and cannot read container log: {e}"]
-            else:
-                result[host]["flagperf"] = ["ERROR: Both operation.log.txt and container_main.log.txt not found - task may have failed to start"]
+        with open(flagperf_result_path, 'r') as file:
+            key_lines = [
+                line.strip() for line in file if 'FlagPerf Result' in line
+            ]
+        result[host]["flagperf"] = key_lines
 
         noderank += 1
 
@@ -576,135 +442,79 @@ def analysis_log(key_logs):
         RUN_LOGGER.info("Noderank {} with IP {}".format(noderank, host))
 
         RUN_LOGGER.info("1) Performance:")
-        flagperf_results = key_logs[host]["flagperf"]
-        if flagperf_results:
-            for line in flagperf_results:
-                if "]" in line and len(line.split("]")) > 1:
-                    RUN_LOGGER.info("  " + line.split("]")[1])
-                else:
-                    RUN_LOGGER.info("  " + line)
-        else:
-            RUN_LOGGER.info("  No performance results available")
+        for line in key_logs[host]["flagperf"]:
+            RUN_LOGGER.info("  " + line.split("]")[1])
 
         RUN_LOGGER.info("2) POWER:")
         RUN_LOGGER.info("  2.1) SYSTEM POWER:")
-        try:
-            pwr_series = key_logs[host]["pwr"]
-            if pwr_series:
-                RUN_LOGGER.info(
-                    "    AVERAGE: {} Watts, MAX: {} Watts, STD DEVIATION: {} Watts".
-                    format(round(np.mean(pwr_series), 2), round(np.max(pwr_series), 2),
-                           round(np.std(pwr_series), 2)))
-            else:
-                RUN_LOGGER.info("    No system power data available")
-        except Exception as e:
-            RUN_LOGGER.info(f"    Error reading system power data: {e}")
+        pwr_series = key_logs[host]["pwr"]
+        RUN_LOGGER.info(
+            "    AVERAGE: {} Watts, MAX: {} Watts, STD DEVIATION: {} Watts".
+            format(round(np.mean(pwr_series), 2), round(np.max(pwr_series), 2),
+                   round(np.std(pwr_series), 2)))
 
         RUN_LOGGER.info("  2.2) AI-chip POWER:")
-        try:
-            if "vendor" in key_logs[host] and "power" in key_logs[host]["vendor"]:
-                for node in key_logs[host]["vendor"]["power"].keys():
-                    pwr_series = key_logs[host]["vendor"]["power"][node]
-                    if pwr_series:
-                        kmeans_series = []
-                        for item in pwr_series:
-                            if (np.max(pwr_series) - item) <= (item - np.min(pwr_series)):
-                                kmeans_series.append(item)
-                        pwr_series = kmeans_series
-                        if pwr_series:
-                            RUN_LOGGER.info(
-                                "    RANK {}'s AVERAGE: {} Watts, MAX: {} Watts, STD DEVIATION: {} Watts"
-                                .format(node, round(np.mean(pwr_series), 2),
-                                        round(np.max(pwr_series), 2),
-                                        round(np.std(pwr_series), 2)))
-                        else:
-                            RUN_LOGGER.info(f"    RANK {node}: No valid power data")
-                    else:
-                        RUN_LOGGER.info(f"    RANK {node}: No power data available")
-            else:
-                RUN_LOGGER.info("    No AI-chip power data available")
-        except Exception as e:
-            RUN_LOGGER.info(f"    Error reading AI-chip power data: {e}")
+        for node in key_logs[host]["vendor"]["power"].keys():
+            pwr_series = key_logs[host]["vendor"]["power"][node]
+            kmeans_series = []
+            for item in pwr_series:
+                if (np.max(pwr_series) - item) <= (item - np.min(pwr_series)):
+                    kmeans_series.append(item)
+            pwr_series = kmeans_series
+            RUN_LOGGER.info(
+                "    RANK {}'s AVERAGE: {} Watts, MAX: {} Watts, STD DEVIATION: {} Watts"
+                .format(node, round(np.mean(pwr_series), 2),
+                        round(np.max(pwr_series), 2),
+                        round(np.std(pwr_series), 2)))
 
         RUN_LOGGER.info("  2.3) AI-chip TEMPERATURE:")
-        try:
-            if "vendor" in key_logs[host] and "temp" in key_logs[host]["vendor"]:
-                for node in key_logs[host]["vendor"]["temp"].keys():
-                    temp_series = key_logs[host]["vendor"]["temp"][node]
-                    if temp_series:
-                        kmeans_series = []
-                        for item in temp_series:
-                            if (np.max(temp_series) - item) <= (item -
-                                                                np.min(temp_series)):
-                                kmeans_series.append(item)
-                        temp_series = kmeans_series
-                        if temp_series:
-                            RUN_LOGGER.info(
-                                u"    RANK {}'s AVERAGE: {} \u00b0C, MAX: {} \u00b0C, STD DEVIATION: {} \u00b0C"
-                                .format(node, round(np.mean(temp_series), 2),
-                                        round(np.max(temp_series), 2),
-                                        round(np.std(temp_series), 2)))
-                        else:
-                            RUN_LOGGER.info(f"    RANK {node}: No valid temperature data")
-                    else:
-                        RUN_LOGGER.info(f"    RANK {node}: No temperature data available")
-            else:
-                RUN_LOGGER.info("    No AI-chip temperature data available")
-        except Exception as e:
-            RUN_LOGGER.info(f"    Error reading AI-chip temperature data: {e}")
+        for node in key_logs[host]["vendor"]["temp"].keys():
+            temp_series = key_logs[host]["vendor"]["temp"][node]
+            kmeans_series = []
+            for item in temp_series:
+                if (np.max(temp_series) - item) <= (item -
+                                                    np.min(temp_series)):
+                    kmeans_series.append(item)
+            temp_series = kmeans_series
+            RUN_LOGGER.info(
+                u"    RANK {}'s AVERAGE: {} \u00b0C, MAX: {} \u00b0C, STD DEVIATION: {} \u00b0C"
+                .format(node, round(np.mean(temp_series), 2),
+                        round(np.max(temp_series), 2),
+                        round(np.std(temp_series), 2)))
 
         RUN_LOGGER.info("3) Utilization:")
         RUN_LOGGER.info("  3.1) SYSTEM CPU:")
-        try:
-            cpu_series = key_logs[host]["cpu"]
-            if cpu_series:
-                RUN_LOGGER.info(
-                    "    AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".format(
-                        round(np.mean(cpu_series) * 100, 3),
-                        round(np.max(cpu_series) * 100, 3),
-                        round(np.std(cpu_series) * 100, 3)))
-            else:
-                RUN_LOGGER.info("    No system CPU data available")
-        except Exception as e:
-            RUN_LOGGER.info(f"    Error reading system CPU data: {e}")
+        cpu_series = key_logs[host]["cpu"]
+        RUN_LOGGER.info(
+            "    AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".format(
+                round(np.mean(cpu_series) * 100, 3),
+                round(np.max(cpu_series) * 100, 3),
+                round(np.std(cpu_series) * 100, 3)))
 
         RUN_LOGGER.info("  3.2) SYSTEM MEMORY:")
-        try:
-            mem_series = key_logs[host]["mem"]
-            if mem_series:
-                RUN_LOGGER.info(
-                    "    AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".format(
-                        round(np.mean(mem_series) * 100, 3),
-                        round(np.max(mem_series) * 100, 3),
-                        round(np.std(mem_series) * 100, 3)))
-            else:
-                RUN_LOGGER.info("    No system memory data available")
-        except Exception as e:
-            RUN_LOGGER.info(f"    Error reading system memory data: {e}")
+        mem_series = key_logs[host]["mem"]
+        RUN_LOGGER.info(
+            "    AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".format(
+                round(np.mean(mem_series) * 100, 3),
+                round(np.max(mem_series) * 100, 3),
+                round(np.std(mem_series) * 100, 3)))
 
         RUN_LOGGER.info("  3.3) AI-chip MEMORY:")
-        try:
-            if "vendor" in key_logs[host] and "mem" in key_logs[host]["vendor"]:
-                for node in key_logs[host]["vendor"]["mem"].keys():
-                    mem_series = key_logs[host]["vendor"]["mem"][node]
-                    if mem_series and "max_mem" in key_logs[host]["vendor"]:
-                        max_mem = key_logs[host]["vendor"]["max_mem"]
-                        if max_mem > 0:
-                            RUN_LOGGER.info(
-                                "    RANK {}'s AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".
-                                format(
-                                    node,
-                                    round(np.mean(mem_series) * 100 / max_mem, 3),
-                                    round(np.max(mem_series) * 100 / max_mem, 3),
-                                    round(np.std(mem_series) * 100 / max_mem, 3)))
-                        else:
-                            RUN_LOGGER.info(f"    RANK {node}: Invalid max memory value")
-                    else:
-                        RUN_LOGGER.info(f"    RANK {node}: No memory data available")
-            else:
-                RUN_LOGGER.info("    No AI-chip memory data available")
-        except Exception as e:
-            RUN_LOGGER.info(f"    Error reading AI-chip memory data: {e}")
+        for node in key_logs[host]["vendor"]["mem"].keys():
+            mem_series = key_logs[host]["vendor"]["mem"][node]
+            RUN_LOGGER.info(
+                "    RANK {}'s AVERAGE: {} %, MAX: {} %, STD DEVIATION: {} %".
+                format(
+                    node,
+                    round(
+                        np.mean(mem_series) * 100 /
+                        key_logs[host]["vendor"]["max_mem"], 3),
+                    round(
+                        np.max(mem_series) * 100 /
+                        key_logs[host]["vendor"]["max_mem"], 3),
+                    round(
+                        np.std(mem_series) * 100 /
+                        key_logs[host]["vendor"]["max_mem"], 3)))
         noderank += 1
 
 
@@ -805,19 +615,13 @@ def main():
         # Set command to start train script in container in the cluster
         log_dir_container = os.path.join(config.FLAGPERF_LOG_PATH,
                                          timestamp_log_dir)
-        # 获取主节点地址（第一个host）
-        master_addr = config.HOSTS[0]
-        
         base_args = " --vendor " + config.VENDOR + " --case_name " + case \
                     + " --nnodes " + str(nnodes) \
                     + " --perf_path " + dp_path \
                     + " --nproc_per_node " + str(config.NPROC_PER_NODE) \
                     + " --log_dir " + os.path.join(dp_path, log_dir_container) \
                     + " --log_level " + config.FLAGPERF_LOG_LEVEL.upper() \
-                    + " --master_port " + config.MASTER_PORT \
-                    + " --master_addr " + master_addr \
-                    + " --host_addr " + master_addr \
-                    + " --node_rank 0"
+                    + " --master_port " + config.MASTER_PORT
 
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases. ===")
 
@@ -835,125 +639,13 @@ def main():
         start_tasks_in_cluster(dp_path, container_name, config, base_args,
                                curr_log_path, case)
 
-        # 立即检查容器状态和日志文件
-        RUN_LOGGER.info("2.1) Checking immediate container status...")
-        immediate_check_cmd = f"docker ps --filter name={container_name} && echo '--- Container logs ---' && docker logs {container_name} --tail 10"
-        RUN_LOGGER.debug("Immediate container check: " + immediate_check_cmd)
-        CLUSTER_MGR.run_command_some_hosts(immediate_check_cmd, nnodes, 15)
-        
-        # 尝试手动在容器内创建一个测试文件
-        RUN_LOGGER.info("2.2) Testing manual container command...")
-        manual_test_cmd = "cd " + dp_path + " && " + sys.executable \
-                         + " ../utils/container_manager.py -o runcmdin -c " \
-                         + container_name + " -d -t 30 -r \"echo 'Manual test at '$(date) > " \
-                         + config.FLAGPERF_PATH + "/" + curr_log_path + "/manual_test.log" + "\""
-        RUN_LOGGER.debug("Manual test command: " + manual_test_cmd)
-        manual_result = CLUSTER_MGR.run_command_some_hosts(manual_test_cmd, nnodes, 15)
-        
-        if len(manual_result) == 0:
-            RUN_LOGGER.info("✓ Manual container command succeeded")
-        else:
-            RUN_LOGGER.warning("✗ Manual container command failed")
-        
-        # 检查手动测试日志和调试日志
-        manual_log_check = os.path.join(curr_log_path, "manual_test.log")
-        if os.path.exists(manual_log_check):
-            RUN_LOGGER.info("✓ Manual test log file created")
-        else:
-            RUN_LOGGER.debug("Manual test log file not found")
-            
-        # 检查container_main.py的调试日志
-        container_debug_log = os.path.join(curr_log_path, "container_main_debug.log")
-        if os.path.exists(container_debug_log):
-            RUN_LOGGER.info("✓ Container main debug log found")
-            try:
-                with open(container_debug_log, 'r') as f:
-                    content = f.read().strip()
-                    if content:
-                        RUN_LOGGER.info("Container main debug log content:")
-                        lines = content.split('\n')
-                        # 显示所有内容，因为这是诊断信息
-                        for line in lines:
-                            RUN_LOGGER.info(f"  {line}")
-                    else:
-                        RUN_LOGGER.warning("Container main debug log is empty")
-            except Exception as e:
-                RUN_LOGGER.warning(f"Cannot read container main debug log: {e}")
-        else:
-            RUN_LOGGER.warning("✗ Container main debug log not found")
-            # 尝试在容器内直接检查文件
-            check_debug_cmd = "cd " + dp_path + " && " + sys.executable \
-                             + " ../utils/container_manager.py -o runcmdin -c " \
-                             + container_name + " -d -t 60 -r \"ls -la " + config.FLAGPERF_PATH + "/" + curr_log_path + "/ && echo '--- File contents ---' && cat " + config.FLAGPERF_PATH + "/" + curr_log_path + "/container_main_debug.log 2>/dev/null || echo 'Debug log file not found'\""
-            RUN_LOGGER.info("Checking debug log in container...")
-            debug_check_result = CLUSTER_MGR.run_command_some_hosts(check_debug_cmd, nnodes, 30)
-            if len(debug_check_result) == 0:
-                RUN_LOGGER.info("Container debug check completed")
-            else:
-                RUN_LOGGER.warning("Container debug check failed")
-
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
         pid_file_path = os.path.join(log_dir_container, "start_base_task.pid")
-        
-        # 首先等待一段时间让任务开始执行
-        RUN_LOGGER.info("3.1) Waiting for task to start...")
-        time.sleep(5)
-        
-        # 然后等待任务完成，但设置最大等待时间
-        max_wait_time = 300  # 最多等待5分钟
-        start_wait_time = time.time()
-        
-        while time.time() - start_wait_time < max_wait_time:
-            check_cmd = "cd " + dp_path + "; " + sys.executable \
-                        + " ../utils/container_manager.py -o pidrunning -c " \
-                        + container_name + " -f " + pid_file_path
-            
-            bad_hosts = CLUSTER_MGR.run_command_some_hosts(check_cmd, nnodes, 10, no_log=True)
-            
-            if len(bad_hosts) == nnodes:
-                RUN_LOGGER.info("All tasks completed or PID files not found")
-                break
-            
-            RUN_LOGGER.debug(f"Tasks still running on {nnodes - len(bad_hosts)} hosts")
-            time.sleep(10)
-        
-        if time.time() - start_wait_time >= max_wait_time:
-            RUN_LOGGER.warning("Task wait timeout reached, proceeding with cleanup")
-        
-        # 检查关键日志文件是否生成
-        RUN_LOGGER.info("4) Checking task execution results...")
-        expected_logs = ["container_main.log.txt", "operation.log.txt"]
-        # 使用安全的case名称（替换冒号）
-        safe_case_name = case.replace(":", "_")
-        for host in config.HOSTS:
-            host_log_dir = os.path.join(curr_log_path, safe_case_name, f"{host}_noderank0")
-            for log_file in expected_logs:
-                log_path = os.path.join(host_log_dir, log_file)
-                if os.path.exists(log_path):
-                    RUN_LOGGER.info(f"✓ Found {log_file} for {host}")
-                else:
-                    RUN_LOGGER.warning(f"✗ Missing {log_file} for {host}")
-                    RUN_LOGGER.debug(f"Expected path: {log_path}")
-            
-            # 检查是否有额外的调试信息
-            RUN_LOGGER.debug(f"Checked log directory: {host_log_dir}")
-            
-            # 检查是否有安装日志可以提供线索
-            install_logs = ["module_install.log.txt", "operation_pip_install.log.txt", "case_pip_install.log.txt"]
-            for install_log in install_logs:
-                install_log_path = os.path.join(host_log_dir, install_log)
-                if os.path.exists(install_log_path):
-                    try:
-                        with open(install_log_path, 'r') as f:
-                            content = f.read().strip()
-                            if content:
-                                RUN_LOGGER.info(f"Install log {install_log}: {content}")
-                    except Exception as e:
-                        RUN_LOGGER.warning(f"Cannot read {install_log_path}: {e}")
+        wait_for_finish(dp_path, container_name, pid_file_path, nnodes)
 
-        RUN_LOGGER.info("5) Training tasks end in the cluster...")
-        RUN_LOGGER.info("6) Clean container environments in cluster...")
+        RUN_LOGGER.info("3) Training tasks end in the cluster...")
+        RUN_LOGGER.info("4) Clean container environments in cluster...")
         clean_containers_env_cluster(dp_path, container_name, nnodes, config)
         RUN_LOGGER.info("-== Testcase " + case + " finished ==-")
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases finished."
@@ -963,52 +655,13 @@ def main():
     collect_and_merge_logs(os.path.join(dp_path, curr_log_path), cases, nnodes)
 
     RUN_LOGGER.info("2) summary logs")
-    # 使用最后一个case的log目录，如果没有成功的case则跳过summary
-    if 'case_log_dir' in locals() and 'case' in locals():
-        try:
-            key_logs = summary_logs(config, curr_log_path, case)
-            RUN_LOGGER.debug(key_logs)
-            jsonfile = os.path.join(dp_path, curr_log_path, "detail_result.json")
-            json.dump(key_logs, open(jsonfile, "w"))
+    key_logs = summary_logs(config, case_log_dir)
+    RUN_LOGGER.debug(key_logs)
+    jsonfile = os.path.join(dp_path, curr_log_path, "detail_result.json")
+    json.dump(key_logs, open(jsonfile, "w"))
 
-            RUN_LOGGER.info("3) analysis logs")
-            analysis_log(key_logs)
-        except Exception as e:
-            RUN_LOGGER.error(f"Failed to analyze logs: {e}")
-            RUN_LOGGER.info("Attempting to provide diagnostic information...")
-            
-            # 尝试列出可用的日志文件来帮助诊断
-            try:
-                case_dirs = []
-                for case in cases:
-                    case_dir = os.path.join(curr_log_path, case)
-                    if os.path.exists(case_dir):
-                        case_dirs.append(case_dir)
-                        RUN_LOGGER.info(f"Available case directory: {case_dir}")
-                        for root, dirs, files in os.walk(case_dir):
-                            for file in files:
-                                file_path = os.path.join(root, file)
-                                RUN_LOGGER.info(f"  Log file: {file_path}")
-                
-                if not case_dirs:
-                    RUN_LOGGER.error("No case directories found. Test execution may have failed completely.")
-                    # 检查是否有任何容器相关的错误日志
-                    log_files = ["module_install.log.txt", "operation_pip_install.log.txt", "case_pip_install.log.txt"]
-                    for log_file in log_files:
-                        log_path = os.path.join(curr_log_path, log_file)
-                        if os.path.exists(log_path):
-                            RUN_LOGGER.info(f"Found error log: {log_path}")
-                            try:
-                                with open(log_path, 'r') as f:
-                                    content = f.read()
-                                    RUN_LOGGER.info(f"Content of {log_file}: {content}")
-                            except Exception as read_e:
-                                RUN_LOGGER.warning(f"Cannot read {log_path}: {read_e}")
-                        
-            except Exception as diag_e:
-                RUN_LOGGER.error(f"Failed to provide diagnostic information: {diag_e}")
-    else:
-        RUN_LOGGER.warning("No successful test cases to analyze.")
+    RUN_LOGGER.info("3) analysis logs")
+    analysis_log(key_logs)
 
 
 if __name__ == '__main__':

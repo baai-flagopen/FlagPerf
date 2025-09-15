@@ -83,52 +83,22 @@ def write_pid_file(pid_file_path, pid_file):
 if __name__ == "__main__":
     config = parse_args()
 
-    # 处理case_name中的冒号，将其替换为安全的字符用于文件路径
-    safe_case_name = config.case_name.replace(":", "_")
-    
     logfile = os.path.join(
-        config.log_dir, safe_case_name,
+        config.log_dir, config.case_name,
         config.host_addr + "_noderank" + str(config.node_rank),
         "container_main.log.txt")
-    
-    # 确保日志目录存在
-    log_dir = os.path.dirname(logfile)
-    os.makedirs(log_dir, exist_ok=True)
-    
-    # 打印调试信息
-    print(f"Container main starting with log file: {logfile}")
-    print(f"Log directory: {log_dir}")
-    print(f"Log directory exists: {os.path.exists(log_dir)}")
-    
     logger.remove()
     logger.add(logfile, level=config.log_level)
     logger.add(sys.stdout, level=config.log_level)
 
-    logger.info("Container main started with config:")
     logger.info(config)
-    
-    try:
-        write_pid_file(config.log_dir, "start_base_task.pid")
-        logger.info("Success Writing PID file at " +
-                    os.path.join(config.log_dir, "start_base_task.pid"))
-    except Exception as e:
-        logger.error(f"Failed to write PID file: {e}")
+    write_pid_file(config.log_dir, "start_base_task.pid")
+    logger.info("Success Writing PID file at " +
+                os.path.join(config.log_dir, "start_base_task.pid"))
 
-    try:
-        op, dataformat, spectflops, oplib, chip = config.case_name.split(":")
-        logger.info(f"Parsed case_name: op={op}, dataformat={dataformat}, spectflops={spectflops}, oplib={oplib}, chip={chip}")
-    except Exception as e:
-        logger.error(f"Failed to parse case_name '{config.case_name}': {e}")
-        sys.exit(1)
+    op, dataformat, spectflops, oplib, chip = config.case_name.split(":")
 
     case_dir = os.path.join(config.perf_path, "benchmarks", op)
-    logger.info(f"Case directory: {case_dir}")
-    logger.info(f"Case directory exists: {os.path.exists(case_dir)}")
-    
-    main_py_path = os.path.join(case_dir, "main.py")
-    logger.info(f"Main.py path: {main_py_path}")
-    logger.info(f"Main.py exists: {os.path.exists(main_py_path)}")
-    
     start_cmd = "cd " + case_dir + ";python3 main.py "
     start_cmd += " --vendor=" + config.vendor
     start_cmd += " --case_name=" + op
@@ -140,46 +110,14 @@ if __name__ == "__main__":
     script_log_file = os.path.join(os.path.dirname(logfile),
                                    "operation.log.txt")
 
-    logger.info(f"Command to execute: {start_cmd}")
-    logger.info(f"Output will be written to: {script_log_file}")
+    logger.info(start_cmd)
+    logger.info(script_log_file)
 
-    logger.info("Starting benchmark execution...")
-    try:
-        f = open(script_log_file, "w")
-        logger.info(f"Opened output file: {script_log_file}")
-        
-        p = subprocess.Popen(start_cmd,
-                             shell=True,
-                             stdout=f,
-                             stderr=subprocess.STDOUT)
-        logger.info(f"Started subprocess with PID: {p.pid}")
-        
-        return_code = p.wait()
-        f.close()
-        
-        logger.info(f"Subprocess finished with return code: {return_code}")
-        
-        # 检查输出文件是否有内容
-        if os.path.exists(script_log_file):
-            file_size = os.path.getsize(script_log_file)
-            logger.info(f"Output file size: {file_size} bytes")
-            if file_size > 0:
-                with open(script_log_file, 'r') as rf:
-                    content = rf.read()
-                    logger.info(f"Output file content (first 500 chars): {content[:500]}")
-            else:
-                logger.warning("Output file is empty")
-        else:
-            logger.error("Output file was not created")
-            
-        if return_code == 0:
-            logger.info("Task completed successfully")
-        else:
-            logger.error(f"Task failed with return code: {return_code}")
-            
-    except Exception as e:
-        logger.error(f"Exception during benchmark execution: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-    
-    logger.info("Container main finished")
+    f = open(script_log_file, "w")
+    p = subprocess.Popen(start_cmd,
+                         shell=True,
+                         stdout=f,
+                         stderr=subprocess.STDOUT)
+    p.wait()
+    f.close()
+    logger.info("Task Finish")
