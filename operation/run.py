@@ -149,13 +149,13 @@ def stop_container_in_cluster(dp_path, container_name, nnodes):
         RUN_LOGGER.warning("Normal container stop failed, attempting force cleanup...")
         
         # 强制停止和删除容器
-        force_cleanup_cmd = f"docker ps -a | grep {container_name} | awk '{{print $1}}' | xargs -r docker rm -f"
+        force_cleanup_cmd = f"docker ps -aq --filter name={container_name} | xargs -r docker rm -f"
         RUN_LOGGER.debug("Force cleanup cmd: " + force_cleanup_cmd)
         
         cleanup_failed = CLUSTER_MGR.run_command_some_hosts(force_cleanup_cmd, nnodes, 30)
         
         # 额外清理：删除所有相关容器
-        extra_cleanup_cmd = f"docker container prune -f && docker ps -a"
+        extra_cleanup_cmd = "docker container prune -f"
         CLUSTER_MGR.run_command_some_hosts(extra_cleanup_cmd, nnodes, 30)
         
         if len(cleanup_failed) != 0:
@@ -372,19 +372,25 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
     RUN_LOGGER.info("a) Check and clean Docker environment first.")
     
     # 检查Docker状态
-    docker_status_cmd = "docker ps -a && echo '=== Docker system info ===' && docker system df"
-    RUN_LOGGER.debug("Checking Docker status: " + docker_status_cmd)
+    docker_status_cmd = "docker ps"
+    RUN_LOGGER.debug("Checking running Docker containers: " + docker_status_cmd)
     CLUSTER_MGR.run_command_some_hosts(docker_status_cmd, nnodes, 30)
     
-    # 强制清理所有相关容器（包括可能的僵尸容器）
-    cleanup_cmd = f"docker ps -aq --filter name={container_name} | xargs -r docker rm -f"
-    RUN_LOGGER.debug("Force cleanup existing containers: " + cleanup_cmd)
-    CLUSTER_MGR.run_command_some_hosts(cleanup_cmd, nnodes, 30)
+    # 尝试停止相关容器（如果存在）
+    try:
+        stop_related_cmd = f"docker stop {container_name}"
+        RUN_LOGGER.debug("Attempting to stop existing container: " + stop_related_cmd)
+        CLUSTER_MGR.run_command_some_hosts(stop_related_cmd, nnodes, 15)
+    except:
+        pass  # 容器可能不存在，忽略错误
     
-    # 清理无用的容器和网络
-    prune_cmd = "docker container prune -f && docker network prune -f"
-    RUN_LOGGER.debug("Pruning unused resources: " + prune_cmd)
-    CLUSTER_MGR.run_command_some_hosts(prune_cmd, nnodes, 30)
+    # 尝试删除相关容器（如果存在）
+    try:
+        remove_related_cmd = f"docker rm {container_name}"
+        RUN_LOGGER.debug("Attempting to remove existing container: " + remove_related_cmd)
+        CLUSTER_MGR.run_command_some_hosts(remove_related_cmd, nnodes, 15)
+    except:
+        pass  # 容器可能不存在，忽略错误
 
     RUN_LOGGER.info("b) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
@@ -420,7 +426,7 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
     RUN_LOGGER.info("c) Start container(s) in the cluster.......[SUCCESS]")
     
     # 验证容器是否真的启动成功
-    verify_cmd = f"docker ps --filter name={container_name} --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'"
+    verify_cmd = f"docker ps --filter name={container_name}"
     RUN_LOGGER.debug("Verifying container status: " + verify_cmd)
     CLUSTER_MGR.run_command_some_hosts(verify_cmd, nnodes, 15)
 
