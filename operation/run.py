@@ -259,8 +259,21 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                 + " ../utils/container_manager.py -o runcmdin -c " \
                 + container_name + " -d -t 600 -r \"python3 --version"
 
-    # 确保 loguru 安装成功
+    # 确保基础依赖安装成功
     start_cmd += " && (pip3 install loguru || python3 -m pip install loguru || (python3 -m ensurepip --default-pip && pip3 install loguru))"
+    
+    # 确保PyTorch安装成功（对于operation benchmark必需）
+    # 尝试多种安装方式
+    start_cmd += " && echo 'Installing PyTorch...'"
+    start_cmd += " && (python3 -c 'import torch; print(f\"torch already available: {torch.__version__}\")' || ("
+    start_cmd += "echo 'torch not found, installing...' && "
+    start_cmd += "(pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu || "
+    start_cmd += "pip3 install torch torchvision torchaudio || "
+    start_cmd += "pip3 install torch==2.0.1 torchvision torchaudio || "
+    start_cmd += "echo 'All torch installation methods failed')))"
+    
+    # 验证torch安装
+    start_cmd += " && python3 -c 'import torch; print(f\"torch verification successful: {torch.__version__}\")'"
 
     # 安装依赖文件（如果存在）
     operation_req_file = os.path.join(dp_path, "requirements.txt")

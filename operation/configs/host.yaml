@@ -32,6 +32,7 @@ ACCE_VISIBLE_DEVICE_ENV_NAME: "MACA_VISIBLE_DEVICES"
 # now only support flaggems and nativepytorch
 CASES:
     "mm:FP16:312:nativetorch:C550_64": "ngctorch2403"
+#    "mm:FP16:312:flaggems:C550_64": "ngctorch2403"
 #    "mm:FP16:flaggems:A100_40_SXM": "ngctorch2403"
 #    "mm:FP16:nativetorch:A100_40_SXM": "ngctorch2403"
 #    'exp:FP32:nativetorch:R300p" : "xpytorch029"
