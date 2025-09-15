@@ -20,3 +20,11 @@ RUN pip3 install loguru
 #RUN pip3 install pycuda
 RUN pip3 install schedule
 RUN pip3 install munch
+
+# 安装 PyTorch (MetaX 版本)
+# 注意：这里可能需要使用 MetaX 特定的 PyTorch 版本
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu || \
+    pip3 install torch torchvision torchaudio
+
+# 安装其他必要的依赖
+RUN pip3 install numpy scipy
