@@ -1,4 +1,4 @@
-FROM flagperf-operation-metax-ngctorch2403:t_v0.1
+FROM cr.metax-tech.com/public-library/maca-c500-pytorch:2.33.0.6-torch2.4-py310-ubuntu22.04-amd64
 
 # 检查并安装 python3-pip（如果需要）
 RUN which pip3 || (apt-get update && apt-get install -y python3-pip)
@@ -21,10 +21,5 @@ RUN pip3 install loguru
 RUN pip3 install schedule
 RUN pip3 install munch
 
-# 安装 PyTorch (MetaX 版本)
-# 注意：这里可能需要使用 MetaX 特定的 PyTorch 版本
-RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu || \
-    pip3 install torch torchvision torchaudio
-
-# 安装其他必要的依赖
+# MetaX 官方镜像已包含 PyTorch，只需安装额外依赖
 RUN pip3 install numpy scipy
