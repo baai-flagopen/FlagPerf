@@ -307,13 +307,17 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                      + " > " + abs_log_path + "/env.log.txt " \
                      + "2>&1"
 
-    # 最简单的测试：只创建一个测试文件
-    debug_log_path = os.path.join(dp_path, curr_log_path, "container_debug.log")
-    start_cmd += " && echo 'Container test started' > " + debug_log_path \
+    # 创建调试日志文件，使用容器内的路径
+    debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/container_debug.log"
+    # 确保日志目录存在
+    start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
+                 + " && echo 'Container test started' > " + debug_log_path \
                  + " && date >> " + debug_log_path \
                  + " && pwd >> " + debug_log_path \
                  + " && whoami >> " + debug_log_path \
+                 + " && echo 'About to run container_main.py' >> " + debug_log_path \
                  + " && python3 --version >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Command: python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + "' >> " + debug_log_path \
                  + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + " >> " + debug_log_path + " 2>&1" \
                  + " && echo 'Test completed' >> " + debug_log_path
 
@@ -835,7 +839,7 @@ def main():
         manual_test_cmd = "cd " + dp_path + " && " + sys.executable \
                          + " ../utils/container_manager.py -o runcmdin -c " \
                          + container_name + " -d -r \"echo 'Manual test at '$(date) > " \
-                         + os.path.join(dp_path, curr_log_path, "manual_test.log") + "\""
+                         + config.FLAGPERF_PATH + "/" + curr_log_path + "/manual_test.log" + "\""
         RUN_LOGGER.debug("Manual test command: " + manual_test_cmd)
         manual_result = CLUSTER_MGR.run_command_some_hosts(manual_test_cmd, nnodes, 15)
         
@@ -845,8 +849,8 @@ def main():
             RUN_LOGGER.warning("✗ Manual container command failed")
         
         # 检查调试日志是否已生成
-        debug_log_check = os.path.join(dp_path, curr_log_path, "container_debug.log")
-        manual_log_check = os.path.join(dp_path, curr_log_path, "manual_test.log")
+        debug_log_check = os.path.join(curr_log_path, "container_debug.log")
+        manual_log_check = os.path.join(curr_log_path, "manual_test.log")
         
         if os.path.exists(debug_log_check):
             RUN_LOGGER.info("✓ Debug log file created immediately")

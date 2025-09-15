@@ -87,6 +87,11 @@ if __name__ == "__main__":
         config.log_dir, config.case_name,
         config.host_addr + "_noderank" + str(config.node_rank),
         "container_main.log.txt")
+    
+    # 确保日志目录存在
+    log_dir = os.path.dirname(logfile)
+    os.makedirs(log_dir, exist_ok=True)
+    
     logger.remove()
     logger.add(logfile, level=config.log_level)
     logger.add(sys.stdout, level=config.log_level)
