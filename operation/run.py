@@ -279,9 +279,13 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     start_cmd += " && python3 -c 'import loguru'"
 
     # 创建日志目录并运行主程序
-    # 移除输出重定向，让container_main.py能够正常创建自己的日志文件
+    # 为了调试，我们需要捕获container_main.py的输出
+    debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/container_main_debug.log"
     start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args
+                 + " && echo 'Starting container_main.py at '$(date) > " + debug_log_path \
+                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args \
+                 + " 2>&1 | tee -a " + debug_log_path \
+                 + " && echo 'container_main.py finished with exit code: '$? >> " + debug_log_path
 
     start_cmd += " \""
 
@@ -837,12 +841,30 @@ def main():
         else:
             RUN_LOGGER.warning("✗ Manual container command failed")
         
-        # 检查手动测试日志
+        # 检查手动测试日志和调试日志
         manual_log_check = os.path.join(curr_log_path, "manual_test.log")
         if os.path.exists(manual_log_check):
             RUN_LOGGER.info("✓ Manual test log file created")
         else:
             RUN_LOGGER.debug("Manual test log file not found")
+            
+        # 检查container_main.py的调试日志
+        container_debug_log = os.path.join(curr_log_path, "container_main_debug.log")
+        if os.path.exists(container_debug_log):
+            RUN_LOGGER.info("✓ Container main debug log found")
+            try:
+                with open(container_debug_log, 'r') as f:
+                    content = f.read().strip()
+                    if content:
+                        RUN_LOGGER.info("Container main debug log content:")
+                        for line in content.split('\n'):
+                            RUN_LOGGER.info(f"  {line}")
+                    else:
+                        RUN_LOGGER.warning("Container main debug log is empty")
+            except Exception as e:
+                RUN_LOGGER.warning(f"Cannot read container main debug log: {e}")
+        else:
+            RUN_LOGGER.warning("✗ Container main debug log not found")
 
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
