@@ -243,15 +243,27 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                 + container_name + " -d -r \"echo Hello FlagPerf" \
                 + " > " + abs_log_path + "/hello.log.txt"
 
-    # 检查并安装必需的模块，确保container_main.py能正常运行
-    start_cmd += " && (python3 -c 'import loguru' 2>/dev/null " \
-                 + "|| (echo 'Installing loguru module...' " \
-                 + "&& echo 'Checking available pip commands...' " \
-                 + "&& (which pip3 && pip3 install loguru " \
-                 + "|| which python3 && python3 -m pip install loguru " \
-                 + "|| which pip && pip install loguru " \
-                 + "|| (echo 'ERROR: No pip command found!' && exit 1)) " \
-                 + ">> " + abs_log_path + "/module_install.log.txt 2>&1))"
+    # 检查并安装pip，然后安装必需的模块
+    start_cmd += " && (echo 'Checking pip availability...' " \
+                 + "&& echo 'Python executable: '$(which python3) " \
+                 + "&& python3 --version " \
+                 + "&& (which pip3 >/dev/null 2>&1 && echo 'pip3 found: '$(which pip3) " \
+                 + "|| python3 -m pip --version >/dev/null 2>&1 && echo 'python3 -m pip available' " \
+                 + "|| which pip >/dev/null 2>&1 && echo 'pip found: '$(which pip) " \
+                 + "|| (echo 'No pip found, attempting installation...' " \
+                 + "&& (echo 'Trying ensurepip...' && python3 -m ensurepip --default-pip " \
+                 + "|| (echo 'Trying apt-get...' && apt-get update >/dev/null 2>&1 && apt-get install -y python3-pip) " \
+                 + "|| (echo 'Trying get-pip.py via curl...' && curl -sS https://bootstrap.pypa.io/get-pip.py | python3) " \
+                 + "|| (echo 'Trying get-pip.py via wget...' && wget -qO- https://bootstrap.pypa.io/get-pip.py | python3) " \
+                 + "|| (echo 'FATAL: Cannot install pip!' && exit 1)))) " \
+                 + "&& echo 'Checking loguru module...' " \
+                 + "&& (python3 -c 'import loguru; print(\"loguru already available\")' 2>/dev/null " \
+                 + "|| (echo 'Installing loguru...' " \
+                 + "&& (pip3 install loguru " \
+                 + "|| python3 -m pip install loguru " \
+                 + "|| pip install loguru " \
+                 + "|| (echo 'FATAL: Cannot install loguru!' && exit 1)))) " \
+                 + ">> " + abs_log_path + "/module_install.log.txt 2>&1)"
 
     # 首先安装operation目录下的基础依赖
     operation_req_file = os.path.join(dp_path, "requirements.txt")
