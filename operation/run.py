@@ -246,19 +246,30 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     # 检查并安装必需的模块，确保container_main.py能正常运行
     start_cmd += " && (python3 -c 'import loguru' 2>/dev/null " \
                  + "|| (echo 'Installing loguru module...' " \
-                 + "&& pip install loguru >> " + abs_log_path + "/module_install.log.txt 2>&1))"
+                 + "&& echo 'Checking available pip commands...' " \
+                 + "&& (which pip3 && pip3 install loguru " \
+                 + "|| which python3 && python3 -m pip install loguru " \
+                 + "|| which pip && pip install loguru " \
+                 + "|| (echo 'ERROR: No pip command found!' && exit 1)) " \
+                 + ">> " + abs_log_path + "/module_install.log.txt 2>&1))"
 
     # 首先安装operation目录下的基础依赖
     operation_req_file = os.path.join(dp_path, "requirements.txt")
     if os.path.isfile(operation_req_file):
-        start_cmd += " && pip install -r " + operation_req_file \
-                     + " > " + abs_log_path + "/operation_pip_install.log.txt " \
+        start_cmd += " && (echo 'Installing operation requirements...' " \
+                     + "&& (pip3 install -r " + operation_req_file \
+                     + " || python3 -m pip install -r " + operation_req_file \
+                     + " || pip install -r " + operation_req_file + ")) " \
+                     + "> " + abs_log_path + "/operation_pip_install.log.txt " \
                      + "2>&1"
 
     # 然后安装特定case的依赖
     if os.path.isfile(req_file):
-        start_cmd += " && pip install -r " + req_file \
-                     + " > " + abs_log_path + "/case_pip_install.log.txt " \
+        start_cmd += " && (echo 'Installing case requirements...' " \
+                     + "&& (pip3 install -r " + req_file \
+                     + " || python3 -m pip install -r " + req_file \
+                     + " || pip install -r " + req_file + ")) " \
+                     + "> " + abs_log_path + "/case_pip_install.log.txt " \
                      + "2>&1"
 
     if os.path.isfile(env_shell):
