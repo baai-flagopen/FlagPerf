@@ -676,7 +676,7 @@ def main(stdout, nullout):
             RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
             pid_file_path = os.path.join(
                 log_dir_container,
-                "start_" + case_config["framework"] + "_task.pid")
+                "start_" + case_config["framework"].split("_")[0] + "_task.pid")
             wait_for_finish(dp_path, container_name, pid_file_path, nnodes)
             RUN_LOGGER.info("3) Training tasks end in the cluster...")
             RUN_LOGGER.info("4) Clean container environments in cluster...")
