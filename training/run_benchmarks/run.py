@@ -360,7 +360,7 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
     
     # 创建增强的启动命令，类似算子测试版本的改动
     abs_log_path = os.path.join(dp_path, curr_log_path)
-    debug_log_path = tc.FLAGPERF_PATH + "/" + curr_log_path + "/training_debug.log"
+    debug_log_path = curr_log_path + "/training_debug.log"
     
     if (os.path.isfile(env_file)):
         start_cmd = "cd " + dp_path + " && " + sys.executable \
@@ -368,7 +368,7 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
                 + container_name + " -d -t 600 -r \"python3 --version"
         
         # 创建日志目录并记录调试信息
-        start_cmd += " && mkdir -p " + tc.FLAGPERF_PATH + "/" + curr_log_path \
+        start_cmd += " && mkdir -p " + curr_log_path \
                      + " && echo 'Starting training task at '$(date) > " + debug_log_path \
                      + " && source " + env_file \
                      + " > " + curr_log_path + "/source_env.log.txt 2>&1" \
@@ -382,7 +382,7 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
         start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
                 + container_name + " -d -t 600 -r \"python3 --version" \
-                + " && mkdir -p " + tc.FLAGPERF_PATH + "/" + curr_log_path \
+                + " && mkdir -p " + curr_log_path \
                 + " && echo 'Starting training task no env at '$(date) > " + debug_log_path \
                 + " && python3 " + tc.FLAGPERF_PATH + "/run_benchmarks/" \
                 + framework + "/start_" + framework + "_task.py " \
