@@ -254,32 +254,39 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     abs_log_path = os.path.join(dp_path, curr_log_path)
 
-    # 简化命令结构，避免复杂的嵌套和引号问题
+    # 简化命令结构，确保依赖安装成功
     start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
                 + container_name + " -d -r \"echo 'Starting FlagPerf task...' " \
-                + "&& python3 --version " \
-                + "&& pip3 install loguru || python3 -m pip install loguru || echo 'loguru install skipped'"
+                + "&& python3 --version"
+
+    # 确保 loguru 安装成功
+    start_cmd += " && (pip3 install loguru || python3 -m pip install loguru || (echo 'Installing pip first...' && python3 -m ensurepip --default-pip && pip3 install loguru))"
 
     # 安装依赖文件（如果存在）
     operation_req_file = os.path.join(dp_path, "requirements.txt")
     if os.path.isfile(operation_req_file):
-        start_cmd += " && pip3 install -r " + operation_req_file + " || echo 'operation requirements install failed'"
+        start_cmd += " && pip3 install -r " + operation_req_file
 
     if os.path.isfile(req_file):
-        start_cmd += " && pip3 install -r " + req_file + " || echo 'case requirements install failed'"
+        start_cmd += " && pip3 install -r " + req_file
 
     if os.path.isfile(env_shell):
         if config.VENDOR == "iluvatar":
             start_cmd += " && export CUDA_VISIBLE_DEVICES=" + str(config.DEVICE)
-        start_cmd += " && source " + env_shell + " || echo 'env setup failed'"
+        start_cmd += " && source " + env_shell
+
+    # 验证 loguru 安装
+    start_cmd += " && python3 -c 'import loguru; print(\"loguru imported successfully\")'"
 
     # 创建日志目录并运行主程序
     debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/container_debug.log"
     start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                 + " && echo 'Running container_main.py...' > " + debug_log_path \
+                 + " && echo 'Dependencies verified, running container_main.py...' > " + debug_log_path \
+                 + " && echo 'Command: python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + "' >> " + debug_log_path \
                  + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + " >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Task completed' >> " + debug_log_path
+                 + " && echo 'Task completed successfully' >> " + debug_log_path \
+                 + " || echo 'Task failed' >> " + debug_log_path
 
     start_cmd += " \""
 
