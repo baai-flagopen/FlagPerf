@@ -21,7 +21,7 @@ from utils import cluster_manager
 from utils import flagperf_logger
 from utils import image_manager
 
-VERSION = "v0.1"
+VERSION = "1.0"
 RUN_LOGGER = flagperf_logger.FlagPerfLogger()
 CLUSTER_MGR = cluster_manager.ClusterManager()
 
