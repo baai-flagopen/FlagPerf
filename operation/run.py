@@ -309,26 +309,55 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     # 创建调试日志文件，使用容器内的路径
     debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/container_debug.log"
-    # 确保日志目录存在
+    # 确保日志目录存在并执行简单测试
     start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                 + " && echo 'Container test started' > " + debug_log_path \
-                 + " && date >> " + debug_log_path \
-                 + " && pwd >> " + debug_log_path \
-                 + " && whoami >> " + debug_log_path \
-                 + " && echo 'About to run container_main.py' >> " + debug_log_path \
+                 + " && echo 'Container test started at '$(date) > " + debug_log_path \
+                 + " && echo 'Working directory: '$(pwd) >> " + debug_log_path \
+                 + " && echo 'User: '$(whoami) >> " + debug_log_path \
+                 + " && echo 'Python version:' >> " + debug_log_path \
                  + " && python3 --version >> " + debug_log_path + " 2>&1" \
+                 + " && echo 'Environment variables:' >> " + debug_log_path \
+                 + " && env | grep -E '(FLAGPERF|PATH)' >> " + debug_log_path \
+                 + " && echo 'Files in current directory:' >> " + debug_log_path \
+                 + " && ls -la >> " + debug_log_path \
+                 + " && echo 'About to run container_main.py' >> " + debug_log_path \
                  + " && echo 'Command: python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + "' >> " + debug_log_path \
                  + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + " >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Test completed' >> " + debug_log_path
+                 + " && echo 'Container_main.py execution completed' >> " + debug_log_path
 
     start_cmd += " \""
 
-    RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
+    RUN_LOGGER.info("=== FULL COMMAND TO EXECUTE ===")
+    RUN_LOGGER.info("Command: " + start_cmd)
+    RUN_LOGGER.info("=== END COMMAND ===")
     RUN_LOGGER.info(f"Container main args: {base_args}")
-    CLUSTER_MGR.run_command_some_hosts_distribution_info(
-        start_cmd, nnodes, 300, "base")  # 增加超时时间到300秒
+    
+    # 执行命令并检查结果 - 使用普通的run_command_some_hosts避免参数重复
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts(
+        start_cmd, nnodes, 300)  # 增加超时时间到300秒
+    
+    if len(failed_hosts) > 0:
+        RUN_LOGGER.error(f"Command execution failed on hosts: {list(failed_hosts.keys())}")
+        for host, error_code in failed_hosts.items():
+            RUN_LOGGER.error(f"Host {host} failed with error code: {error_code}")
+    else:
+        RUN_LOGGER.info("Command execution started successfully on all hosts")
+    
     # Wait a moment for starting tasks.
     time.sleep(10)  # 减少等待时间，因为任务已经在后台运行
+    
+    # 立即检查调试日志是否被创建
+    RUN_LOGGER.info("Checking if debug log was created immediately...")
+    check_debug_cmd = "cd " + dp_path + " && " + sys.executable \
+                     + " ../utils/container_manager.py -o runcmdin -c " \
+                     + container_name + " -d -r \"ls -la " + config.FLAGPERF_PATH + "/" + curr_log_path + "/\""
+    RUN_LOGGER.debug("Debug check command: " + check_debug_cmd)
+    debug_check_result = CLUSTER_MGR.run_command_some_hosts(check_debug_cmd, nnodes, 15)
+    
+    if len(debug_check_result) == 0:
+        RUN_LOGGER.info("✓ Debug directory listing command succeeded")
+    else:
+        RUN_LOGGER.warning("✗ Debug directory listing command failed")
 
 
 def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
