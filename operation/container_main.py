@@ -83,14 +83,22 @@ def write_pid_file(pid_file_path, pid_file):
 if __name__ == "__main__":
     config = parse_args()
 
+    # 处理case_name中的冒号，将其替换为安全的字符用于文件路径
+    safe_case_name = config.case_name.replace(":", "_")
+    
     logfile = os.path.join(
-        config.log_dir, config.case_name,
+        config.log_dir, safe_case_name,
         config.host_addr + "_noderank" + str(config.node_rank),
         "container_main.log.txt")
     
     # 确保日志目录存在
     log_dir = os.path.dirname(logfile)
     os.makedirs(log_dir, exist_ok=True)
+    
+    # 打印调试信息
+    print(f"Container main starting with log file: {logfile}")
+    print(f"Log directory: {log_dir}")
+    print(f"Log directory exists: {os.path.exists(log_dir)}")
     
     logger.remove()
     logger.add(logfile, level=config.log_level)

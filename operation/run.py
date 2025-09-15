@@ -279,9 +279,9 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     start_cmd += " && python3 -c 'import loguru'"
 
     # 创建日志目录并运行主程序
-    debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/container_debug.log"
+    # 移除输出重定向，让container_main.py能够正常创建自己的日志文件
     start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args + " > " + debug_log_path + " 2>&1"
+                 + " && python3 " + config.FLAGPERF_PATH + "/container_main.py " + base_args
 
     start_cmd += " \""
 
@@ -486,7 +486,7 @@ def collect_and_merge_logs(curr_log_path, cases, nnodes):
                            curr_log_path)
 
 
-def summary_logs(config, case_log_dir):
+def summary_logs(config, case_log_dir, case_name):
     analysis_module_path = os.path.join("vendors", config.VENDOR,
                                         config.VENDOR + "_analysis")
     analysis_module_path = analysis_module_path.replace("/", ".")
@@ -495,9 +495,11 @@ def summary_logs(config, case_log_dir):
 
     result = {}
     noderank = 0
+    # 使用安全的case名称
+    safe_case_name = case_name.replace(":", "_")
     for host in config.HOSTS:
         result[host] = {}
-        monitor_log_dir = os.path.join(case_log_dir,
+        monitor_log_dir = os.path.join(case_log_dir, safe_case_name,
                                        host + "_noderank" + str(noderank))
 
         # vendor monitor results like temp/power
@@ -835,34 +837,12 @@ def main():
         else:
             RUN_LOGGER.warning("✗ Manual container command failed")
         
-        # 检查调试日志是否已生成
-        debug_log_check = os.path.join(curr_log_path, "container_debug.log")
+        # 检查手动测试日志
         manual_log_check = os.path.join(curr_log_path, "manual_test.log")
-        
-        if os.path.exists(debug_log_check):
-            RUN_LOGGER.info("✓ Debug log file created immediately")
-            try:
-                with open(debug_log_check, 'r') as f:
-                    content = f.read().strip()
-                    if content:
-                        RUN_LOGGER.info("Debug log content (first 10 lines):")
-                        for line in content.split('\n')[:10]:
-                            RUN_LOGGER.info(f"  {line}")
-            except Exception as e:
-                RUN_LOGGER.warning(f"Cannot read debug log: {e}")
-        else:
-            RUN_LOGGER.warning("✗ Debug log file not created immediately")
-            
         if os.path.exists(manual_log_check):
             RUN_LOGGER.info("✓ Manual test log file created")
-            try:
-                with open(manual_log_check, 'r') as f:
-                    content = f.read().strip()
-                    RUN_LOGGER.info(f"Manual test content: {content}")
-            except Exception as e:
-                RUN_LOGGER.warning(f"Cannot read manual test log: {e}")
         else:
-            RUN_LOGGER.warning("✗ Manual test log file not created")
+            RUN_LOGGER.debug("Manual test log file not found")
 
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
@@ -896,46 +876,20 @@ def main():
         # 检查关键日志文件是否生成
         RUN_LOGGER.info("4) Checking task execution results...")
         expected_logs = ["container_main.log.txt", "operation.log.txt"]
+        # 使用安全的case名称（替换冒号）
+        safe_case_name = case.replace(":", "_")
         for host in config.HOSTS:
-            host_log_dir = os.path.join(case_log_dir, f"{host}_noderank0")
+            host_log_dir = os.path.join(curr_log_path, safe_case_name, f"{host}_noderank0")
             for log_file in expected_logs:
                 log_path = os.path.join(host_log_dir, log_file)
                 if os.path.exists(log_path):
                     RUN_LOGGER.info(f"✓ Found {log_file} for {host}")
                 else:
                     RUN_LOGGER.warning(f"✗ Missing {log_file} for {host}")
+                    RUN_LOGGER.debug(f"Expected path: {log_path}")
             
-            # 检查容器调试日志
-            container_debug_log = os.path.join(curr_log_path, "container_debug.log")
-            if os.path.exists(container_debug_log):
-                RUN_LOGGER.info(f"✓ Found container debug log for {host}")
-                try:
-                    with open(container_debug_log, 'r') as f:
-                        content = f.read().strip()
-                        if content:
-                            RUN_LOGGER.info(f"Container debug log content:")
-                            lines = content.split('\n')
-                            for line in lines:  # 显示所有行
-                                RUN_LOGGER.info(f"  {line}")
-                        else:
-                            RUN_LOGGER.warning("Container debug log is empty")
-                except Exception as e:
-                    RUN_LOGGER.warning(f"Cannot read container debug log: {e}")
-            else:
-                RUN_LOGGER.warning(f"✗ Missing container debug log for {host}")
-                # 尝试查找其他可能的日志位置
-                alt_debug_log = os.path.join(case_log_dir, "container_debug.log")
-                if os.path.exists(alt_debug_log):
-                    RUN_LOGGER.info(f"✓ Found alternative container debug log")
-                    try:
-                        with open(alt_debug_log, 'r') as f:
-                            content = f.read().strip()
-                            if content:
-                                RUN_LOGGER.info(f"Alternative debug log content:")
-                                for line in content.split('\n'):
-                                    RUN_LOGGER.info(f"  {line}")
-                    except Exception as e:
-                        RUN_LOGGER.warning(f"Cannot read alternative debug log: {e}")
+            # 检查是否有额外的调试信息
+            RUN_LOGGER.debug(f"Checked log directory: {host_log_dir}")
             
             # 检查是否有安装日志可以提供线索
             install_logs = ["module_install.log.txt", "operation_pip_install.log.txt", "case_pip_install.log.txt"]
@@ -962,9 +916,9 @@ def main():
 
     RUN_LOGGER.info("2) summary logs")
     # 使用最后一个case的log目录，如果没有成功的case则跳过summary
-    if 'case_log_dir' in locals():
+    if 'case_log_dir' in locals() and 'case' in locals():
         try:
-            key_logs = summary_logs(config, case_log_dir)
+            key_logs = summary_logs(config, curr_log_path, case)
             RUN_LOGGER.debug(key_logs)
             jsonfile = os.path.join(dp_path, curr_log_path, "detail_result.json")
             json.dump(key_logs, open(jsonfile, "w"))
