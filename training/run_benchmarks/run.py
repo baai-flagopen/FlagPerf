@@ -228,15 +228,15 @@ def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes)
         parts.insert(insert_pos, f"--name={container_name}")
         final_cmd = " ".join(parts)
 
-    RUN_LOGGER.info("🔥 [执行中] 正在集群中执行您的自定义Docker命令...")
-    RUN_LOGGER.info("💻 [最终命令] " + final_cmd)
-    RUN_LOGGER.info("⏰ [执行提示] 这可能需要一些时间，请耐心等待...")
+    RUN_LOGGER.info("[执行中] 正在集群中执行您的自定义Docker命令...")
+    RUN_LOGGER.info("[最终命令] " + final_cmd)
+    RUN_LOGGER.info("[执行提示] 这可能需要一些时间，请耐心等待...")
     bad_hosts = CLUSTER_MGR.run_command_some_hosts(final_cmd, nnodes, 600)
     if len(bad_hosts) != 0:
-        RUN_LOGGER.error("❌ [自定义容器启动失败] 以下主机无法启动自定义Docker容器: " +
+        RUN_LOGGER.error("[自定义容器启动失败] 以下主机无法启动自定义Docker容器: " +
                          ",".join(bad_hosts.keys()))
         return False
-    RUN_LOGGER.info("✅ [自定义容器成功] 您的自定义Docker容器已成功启动！")
+    RUN_LOGGER.info("[自定义容器成功] 您的自定义Docker容器已成功启动！")
     return True
 
 
@@ -352,7 +352,7 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, base_args,
         framework_sub_path = framework_sub_path.split("_")[0]
     env_file = os.path.join(
         tc.FLAGPERF_PATH, tc.VENDOR,
-        case_config["model"] + "-" + framework_sub_path,
+        case_config["model"] + "-" + case_config["framework"],
         "config/environment_variables.sh")
     framework = case_config["framework"].split("_")[0]
     
@@ -413,49 +413,21 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
        containers, setup environments, start monitors, and clear caches.'''
     nnodes = case_config["nnodes"]
     
-    RUN_LOGGER.info("a) Check and clean Docker environment first.")
-    
-    # 检查Docker状态
-    docker_status_cmd = "docker ps"
-    RUN_LOGGER.debug("Checking running Docker containers: " + docker_status_cmd)
-    CLUSTER_MGR.run_command_some_hosts(docker_status_cmd, nnodes, 30)
-    
-    # 检查容器是否存在，然后清理
-    check_container_cmd = f"docker ps -aq --filter name={container_name}"
-    RUN_LOGGER.debug("Checking if container exists: " + check_container_cmd)
-    existing_result = CLUSTER_MGR.run_command_some_hosts(check_container_cmd, nnodes, 15)
-    
-    # 如果容器存在（命令成功执行），则进行清理
-    if len(existing_result) == 0:  # 没有失败的主机，说明命令执行成功
-        RUN_LOGGER.info("Found existing containers, cleaning up...")
-        
-        # 停止容器
-        stop_related_cmd = f"docker stop {container_name} 2>/dev/null || true"
-        RUN_LOGGER.debug("Stopping existing container: " + stop_related_cmd)
-        CLUSTER_MGR.run_command_some_hosts(stop_related_cmd, nnodes, 15)
-        
-        # 删除容器
-        remove_related_cmd = f"docker rm {container_name} 2>/dev/null || true"
-        RUN_LOGGER.debug("Removing existing container: " + remove_related_cmd)
-        CLUSTER_MGR.run_command_some_hosts(remove_related_cmd, nnodes, 15)
-    else:
-        RUN_LOGGER.info("No existing containers found, proceeding with fresh start.")
-
-    RUN_LOGGER.info("b) Stop old container(s) first.")
+    RUN_LOGGER.info("a) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
-    RUN_LOGGER.info("c) Start container(s) in the cluster.")
+    RUN_LOGGER.info("b) Start container(s) in the cluster.")
 
     if custom_docker_cmd is not None:
         # Use custom docker command
-        RUN_LOGGER.info("🚀🚀🚀 [中文提示] 检测到自定义Docker命令！正在使用您指定的Docker命令启动容器 🚀🚀🚀")
-        RUN_LOGGER.info("📋 [用户自定义] Docker命令详情: " + custom_docker_cmd)
-        RUN_LOGGER.info("✅ [确认流程] 当前正在走您的自定义流程，而不是默认的FlagPerf流程")
+        RUN_LOGGER.info("[中文提示] 检测到自定义Docker命令！正在使用您指定的Docker命令启动容器")
+        RUN_LOGGER.info("[用户自定义] Docker命令详情: " + custom_docker_cmd)
+        RUN_LOGGER.info("[确认流程] 当前正在走您的自定义流程，而不是默认的FlagPerf流程")
         if not start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
-            RUN_LOGGER.error("❌ [自定义流程失败] 启动自定义容器失败，忽略本轮测试")
+            RUN_LOGGER.error("[自定义流程失败] 启动自定义容器失败，忽略本轮测试")
             return False
     else:
         # Use default container assembly logic
-        RUN_LOGGER.info("📦 [标准流程] 使用默认的FlagPerf容器启动逻辑")
+        RUN_LOGGER.info("[标准流程] 使用默认的FlagPerf容器启动逻辑")
         container_start_args = " --rm --init --detach --net=host --uts=host" \
                                + " --ipc=host --security-opt=seccomp=unconfined" \
                                + " --privileged=true --ulimit=stack=67108864" \
@@ -473,46 +445,28 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
 
         if not start_container_in_cluster(dp_path, container_start_args,
                                           container_name, image_name, nnodes):
-            RUN_LOGGER.error("c) Start container in the cluster......"
+            RUN_LOGGER.error("b) Start container in the cluster......"
                              "[FAILED]. Ignore this round.")
             return False
 
-    RUN_LOGGER.info("c) Start container(s) in the cluster.......[SUCCESS]")
+    RUN_LOGGER.info("b) Start container(s) in the cluster.......[SUCCESS]")
     if custom_docker_cmd is not None:
-        RUN_LOGGER.info("🎉 [自定义容器成功] 您的自定义Docker容器已成功启动并准备就绪！")
-        RUN_LOGGER.info("🔧 [流程确认] 后续的训练任务将在您指定的自定义容器中运行")
+        RUN_LOGGER.info("[自定义容器成功] 您的自定义Docker容器已成功启动并准备就绪！")
+        RUN_LOGGER.info("[流程确认] 后续的训练任务将在您指定的自定义容器中运行")
     else:
-        RUN_LOGGER.info("📦 [标准容器成功] FlagPerf默认容器已启动完成")
-    
-    # 验证容器是否真的启动成功
-    verify_cmd = f"docker ps --filter name={container_name}"
-    RUN_LOGGER.debug("Verifying container status: " + verify_cmd)
-    CLUSTER_MGR.run_command_some_hosts(verify_cmd, nnodes, 15)
-    
-    # 测试容器是否响应命令
-    RUN_LOGGER.info("Testing container command execution...")
-    test_cmd = "cd " + dp_path + " && " + sys.executable \
-               + " ../utils/container_manager.py -o runcmdin -c " \
-               + container_name + " -d -t 30 -r \"echo 'Container test: '$(date) && whoami && pwd\""
-    RUN_LOGGER.debug("Container test command: " + test_cmd)
-    test_result = CLUSTER_MGR.run_command_some_hosts(test_cmd, nnodes, 30)
-    
-    if len(test_result) == 0:
-        RUN_LOGGER.info("✓ Container responds to commands successfully")
-    else:
-        RUN_LOGGER.warning("✗ Container command test failed on hosts: " + ",".join(test_result.keys()))
+        RUN_LOGGER.info("[标准容器成功] FlagPerf默认容器已启动完成")
 
-    RUN_LOGGER.info("d) Prepare running environment.")
+    RUN_LOGGER.info("c) Prepare running environment.")
     if not prepare_running_env(dp_path, container_name, case_config):
-        RUN_LOGGER.error("d) Prepare running environment......"
+        RUN_LOGGER.error("c) Prepare running environment......"
                          "[FAILED]. Ignore this round.")
         RUN_LOGGER.info("Stop containers in cluster.")
         stop_container_in_cluster(dp_path, container_name, nnodes)
         return False
-    RUN_LOGGER.info("d) Prepare running environment......[SUCCESS]")
-    RUN_LOGGER.info("e) Start monitors......")
+    RUN_LOGGER.info("c) Prepare running environment......[SUCCESS]")
+    RUN_LOGGER.info("d) Start monitors......")
     start_monitors_in_cluster(dp_path, case_log_dir, nnodes)
-    RUN_LOGGER.info("f) Clear system caches if it set......")
+    RUN_LOGGER.info("e) Clear system caches if it set......")
     clear_caches_cluster(tc.CLEAR_CACHES, nnodes)
     return True
 
@@ -684,12 +638,12 @@ def main():
     
     # 现在可以安全使用logger了
     if custom_docker_cmd is not None:
-        RUN_LOGGER.info("🎯🎯🎯 [重要] 检测到用户指定了自定义Docker命令！🎯🎯🎯")
-        RUN_LOGGER.info("🔍 [自定义命令] " + custom_docker_cmd)
-        RUN_LOGGER.info("⚠️  [流程提醒] FlagPerf将使用您的自定义Docker命令替代默认容器配置")
-        RUN_LOGGER.info("💡 [提示] 请确保您的Docker命令包含必要的挂载和网络配置")
+        RUN_LOGGER.info("[重要] 检测到用户指定了自定义Docker命令！")
+        RUN_LOGGER.info("[自定义命令] " + custom_docker_cmd)
+        RUN_LOGGER.info("[流程提醒] FlagPerf将使用您的自定义Docker命令替代默认容器配置")
+        RUN_LOGGER.info("[提示] 请确保您的Docker命令包含必要的挂载和网络配置")
     else:
-        RUN_LOGGER.info("📦 [标准模式] 使用FlagPerf默认的Docker容器配置")
+        RUN_LOGGER.info("[标准模式] 使用FlagPerf默认的Docker容器配置")
 
     RUN_LOGGER.info("======== Step 1: Check environment and configs. ========")
     RUN_LOGGER.info("Initialize logger with log path: " + curr_log_path +
