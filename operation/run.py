@@ -307,22 +307,15 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
                      + " > " + abs_log_path + "/env.log.txt " \
                      + "2>&1"
 
-    # 简化诊断，先测试基本的文件操作
+    # 最简单的测试：只创建一个测试文件
     debug_log_path = os.path.join(dp_path, curr_log_path, "container_debug.log")
-    start_cmd += " && echo 'Container execution started at: '$(date) > " + debug_log_path \
-                 + " && echo 'Working directory: '$(pwd) >> " + debug_log_path \
-                 + " && echo 'User: '$(whoami) >> " + debug_log_path \
-                 + " && echo 'Python version: '$(python3 --version 2>&1) >> " + debug_log_path \
-                 + " && echo 'FlagPerf path check:' >> " + debug_log_path \
-                 + " && ls -la " + config.FLAGPERF_PATH + "/container_main.py >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Testing loguru:' >> " + debug_log_path \
-                 + " && python3 -c 'import loguru; print(\"loguru OK\")' >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Creating log directory:' >> " + debug_log_path \
-                 + " && mkdir -p " + abs_log_path + "/" + case + "/localhost_noderank0 >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'Starting container_main.py...' >> " + debug_log_path \
+    start_cmd += " && echo 'Container test started' > " + debug_log_path \
+                 + " && date >> " + debug_log_path \
+                 + " && pwd >> " + debug_log_path \
+                 + " && whoami >> " + debug_log_path \
+                 + " && python3 --version >> " + debug_log_path + " 2>&1" \
                  + " && python3 " + config.FLAGPERF_PATH + "/container_main.py" + base_args + " >> " + debug_log_path + " 2>&1" \
-                 + " && echo 'container_main.py completed' >> " + debug_log_path \
-                 + " || echo 'container_main.py failed with exit code: '$? >> " + debug_log_path
+                 + " && echo 'Test completed' >> " + debug_log_path
 
     start_cmd += " \""
 
@@ -837,8 +830,24 @@ def main():
         RUN_LOGGER.debug("Immediate container check: " + immediate_check_cmd)
         CLUSTER_MGR.run_command_some_hosts(immediate_check_cmd, nnodes, 15)
         
+        # 尝试手动在容器内创建一个测试文件
+        RUN_LOGGER.info("2.2) Testing manual container command...")
+        manual_test_cmd = "cd " + dp_path + " && " + sys.executable \
+                         + " ../utils/container_manager.py -o runcmdin -c " \
+                         + container_name + " -d -r \"echo 'Manual test at '$(date) > " \
+                         + os.path.join(dp_path, curr_log_path, "manual_test.log") + "\""
+        RUN_LOGGER.debug("Manual test command: " + manual_test_cmd)
+        manual_result = CLUSTER_MGR.run_command_some_hosts(manual_test_cmd, nnodes, 15)
+        
+        if len(manual_result) == 0:
+            RUN_LOGGER.info("✓ Manual container command succeeded")
+        else:
+            RUN_LOGGER.warning("✗ Manual container command failed")
+        
         # 检查调试日志是否已生成
         debug_log_check = os.path.join(dp_path, curr_log_path, "container_debug.log")
+        manual_log_check = os.path.join(dp_path, curr_log_path, "manual_test.log")
+        
         if os.path.exists(debug_log_check):
             RUN_LOGGER.info("✓ Debug log file created immediately")
             try:
@@ -852,6 +861,17 @@ def main():
                 RUN_LOGGER.warning(f"Cannot read debug log: {e}")
         else:
             RUN_LOGGER.warning("✗ Debug log file not created immediately")
+            
+        if os.path.exists(manual_log_check):
+            RUN_LOGGER.info("✓ Manual test log file created")
+            try:
+                with open(manual_log_check, 'r') as f:
+                    content = f.read().strip()
+                    RUN_LOGGER.info(f"Manual test content: {content}")
+            except Exception as e:
+                RUN_LOGGER.warning(f"Cannot read manual test log: {e}")
+        else:
+            RUN_LOGGER.warning("✗ Manual test log file not created")
 
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
