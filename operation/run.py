@@ -460,11 +460,29 @@ def summary_logs(config, case_log_dir):
         # FlagPerf Result
         flagperf_result_path = os.path.join(monitor_log_dir,
                                             "operation.log.txt")
-        with open(flagperf_result_path, 'r') as file:
-            key_lines = [
-                line.strip() for line in file if 'FlagPerf Result' in line
-            ]
-        result[host]["flagperf"] = key_lines
+        if os.path.exists(flagperf_result_path):
+            try:
+                with open(flagperf_result_path, 'r') as file:
+                    key_lines = [
+                        line.strip() for line in file if 'FlagPerf Result' in line
+                    ]
+                result[host]["flagperf"] = key_lines
+            except Exception as e:
+                RUN_LOGGER.warning(f"Failed to read {flagperf_result_path}: {e}")
+                result[host]["flagperf"] = [f"ERROR: Failed to read operation log: {e}"]
+        else:
+            RUN_LOGGER.warning(f"Operation log file not found: {flagperf_result_path}")
+            # 检查是否有container_main.log.txt来获取更多信息
+            container_main_log = os.path.join(monitor_log_dir, "container_main.log.txt")
+            if os.path.exists(container_main_log):
+                try:
+                    with open(container_main_log, 'r') as file:
+                        last_lines = file.readlines()[-10:]  # 读取最后10行
+                    result[host]["flagperf"] = [f"ERROR: operation.log.txt not found. Container log tail: {' '.join([line.strip() for line in last_lines])}"]
+                except Exception as e:
+                    result[host]["flagperf"] = [f"ERROR: operation.log.txt not found and cannot read container log: {e}"]
+            else:
+                result[host]["flagperf"] = ["ERROR: Both operation.log.txt and container_main.log.txt not found - task may have failed to start"]
 
         noderank += 1
 
@@ -679,9 +697,33 @@ def main():
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
         pid_file_path = os.path.join(log_dir_container, "start_base_task.pid")
         wait_for_finish(dp_path, container_name, pid_file_path, nnodes)
+        
+        # 检查关键日志文件是否生成
+        RUN_LOGGER.info("4) Checking task execution results...")
+        expected_logs = ["container_main.log.txt", "operation.log.txt"]
+        for host in config.HOSTS:
+            host_log_dir = os.path.join(case_log_dir, f"{host}_noderank0")
+            for log_file in expected_logs:
+                log_path = os.path.join(host_log_dir, log_file)
+                if os.path.exists(log_path):
+                    RUN_LOGGER.info(f"✓ Found {log_file} for {host}")
+                else:
+                    RUN_LOGGER.warning(f"✗ Missing {log_file} for {host}")
+                    # 检查是否有安装日志可以提供线索
+                    install_logs = ["module_install.log.txt", "operation_pip_install.log.txt", "case_pip_install.log.txt"]
+                    for install_log in install_logs:
+                        install_log_path = os.path.join(host_log_dir, install_log)
+                        if os.path.exists(install_log_path):
+                            try:
+                                with open(install_log_path, 'r') as f:
+                                    content = f.read().strip()
+                                    if content:
+                                        RUN_LOGGER.info(f"Install log {install_log}: {content}")
+                            except Exception as e:
+                                RUN_LOGGER.warning(f"Cannot read {install_log_path}: {e}")
 
-        RUN_LOGGER.info("3) Training tasks end in the cluster...")
-        RUN_LOGGER.info("4) Clean container environments in cluster...")
+        RUN_LOGGER.info("5) Training tasks end in the cluster...")
+        RUN_LOGGER.info("6) Clean container environments in cluster...")
         clean_containers_env_cluster(dp_path, container_name, nnodes, config)
         RUN_LOGGER.info("-== Testcase " + case + " finished ==-")
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases finished."
@@ -693,13 +735,48 @@ def main():
     RUN_LOGGER.info("2) summary logs")
     # 使用最后一个case的log目录，如果没有成功的case则跳过summary
     if 'case_log_dir' in locals():
-        key_logs = summary_logs(config, case_log_dir)
-        RUN_LOGGER.debug(key_logs)
-        jsonfile = os.path.join(dp_path, curr_log_path, "detail_result.json")
-        json.dump(key_logs, open(jsonfile, "w"))
+        try:
+            key_logs = summary_logs(config, case_log_dir)
+            RUN_LOGGER.debug(key_logs)
+            jsonfile = os.path.join(dp_path, curr_log_path, "detail_result.json")
+            json.dump(key_logs, open(jsonfile, "w"))
 
-        RUN_LOGGER.info("3) analysis logs")
-        analysis_log(key_logs)
+            RUN_LOGGER.info("3) analysis logs")
+            analysis_log(key_logs)
+        except Exception as e:
+            RUN_LOGGER.error(f"Failed to analyze logs: {e}")
+            RUN_LOGGER.info("Attempting to provide diagnostic information...")
+            
+            # 尝试列出可用的日志文件来帮助诊断
+            try:
+                case_dirs = []
+                for case in cases:
+                    case_dir = os.path.join(curr_log_path, case)
+                    if os.path.exists(case_dir):
+                        case_dirs.append(case_dir)
+                        RUN_LOGGER.info(f"Available case directory: {case_dir}")
+                        for root, dirs, files in os.walk(case_dir):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                RUN_LOGGER.info(f"  Log file: {file_path}")
+                
+                if not case_dirs:
+                    RUN_LOGGER.error("No case directories found. Test execution may have failed completely.")
+                    # 检查是否有任何容器相关的错误日志
+                    log_files = ["module_install.log.txt", "operation_pip_install.log.txt", "case_pip_install.log.txt"]
+                    for log_file in log_files:
+                        log_path = os.path.join(curr_log_path, log_file)
+                        if os.path.exists(log_path):
+                            RUN_LOGGER.info(f"Found error log: {log_path}")
+                            try:
+                                with open(log_path, 'r') as f:
+                                    content = f.read()
+                                    RUN_LOGGER.info(f"Content of {log_file}: {content}")
+                            except Exception as read_e:
+                                RUN_LOGGER.warning(f"Cannot read {log_path}: {read_e}")
+                        
+            except Exception as diag_e:
+                RUN_LOGGER.error(f"Failed to provide diagnostic information: {diag_e}")
     else:
         RUN_LOGGER.warning("No successful test cases to analyze.")
 
