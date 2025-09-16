@@ -14,7 +14,7 @@ RUN mkdir -p $FLAGGEMS_WORK_DIR
 
 # 克隆并安装FlagGems
 WORKDIR $FLAGGEMS_WORK_DIR
-RUN git clone https://github.com/baai-flagopen/FlagGems.git
+RUN git clone https://github.com/FlagOpen/FlagGems.git
 WORKDIR $FLAGGEMS_WORK_DIR/FlagGems
 RUN git checkout 801377f03ba4649bc2d839ff34e38be66ee8a633
 RUN pip3 install -e .
