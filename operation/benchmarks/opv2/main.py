@@ -78,27 +78,44 @@ def main(config):
     print(f"Config: {config}")
     print(f"Case name: {config.case_name}")
     print(f"Log dir: {config.log_dir}")
+    print(f"Mode: {config.mode}")
+    print(f"Warmup: {config.warmup}")
     
     try:
         print("=== Starting correctness test ===")
+        print(f"FLAGGEMS_WORK_DIR environment: {os.environ.get('FLAGGEMS_WORK_DIR', 'NOT_SET')}")
         correctness = do_correctness(config.case_name, config.log_dir)
+        print(f"do_correctness returned: {correctness}")
         correctness = correctness == 0
         print(f"Correctness result: {correctness}")
 
         print("=== Starting performance test ===")
         # test operation performance
+        print(f"Calling do_performance with mode={config.mode}, warmup={config.warmup}, log_dir={config.log_dir}")
         performance = do_performance(config.mode, config.warmup, config.log_dir)
-        performance = performance == 0
-        print(f"Performance result: {performance}")
+        print(f"do_performance returned: {performance}")
+        
+        # Check if performance is a tuple (success case) or single value (error case)
+        if isinstance(performance, tuple):
+            performance_success = performance[0] == 0 and performance[1] == 0
+            print(f"Performance tuple result: {performance}, success: {performance_success}")
+        else:
+            performance_success = performance == 0
+            print(f"Performance single result: {performance}, success: {performance_success}")
         
         print("=== Starting log parsing ===")
+        print(f"Calling parse_log_file with spectflops={config.spectflops}, mode={config.mode}, warmup={config.warmup}")
         parse_log_file(config.spectflops, config.mode, config.warmup, config.log_dir, config.result_log_path)
         print("=== Log parsing completed ===")
+        print("=== Main function completed successfully ===")
         
     except Exception as e:
         print(f"Error in main function: {e}")
         import traceback
         traceback.print_exc()
+        print("=== Main function failed ===")
+        
+    print("=== Exiting main function ===")
 
     # dtype = {
     #     "FP32": torch.float32,
