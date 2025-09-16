@@ -10,10 +10,15 @@ import subprocess
 
 
 def do_correctness(operation, result_log_dir):
+    print(f"=== do_correctness called with operation={operation}, result_log_dir={result_log_dir} ===")
     flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/")
+    print(f"FLAGGEMS_WORK_DIR: {flaggems_dir}")
+    
     try:
+        print(f"Searching for FlagGems in {flaggems_dir}")
         gems_repo = subprocess.check_output(
             ["find", flaggems_dir, "-type", "d", "-name", "FlagGems"], text=True).strip()
+        print(f"Found FlagGems repo: {gems_repo}")
         
         if not gems_repo:
             print(f"FlagGems repository not found in {flaggems_dir}")
@@ -136,36 +141,54 @@ def do_correctness(operation, result_log_dir):
 
         # test operation performance
 def do_performance(mode, warmup, result_log_dir):
+    print(f"=== do_performance called with mode={mode}, warmup={warmup}, result_log_dir={result_log_dir} ===")
     flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/")
+    print(f"FLAGGEMS_WORK_DIR: {flaggems_dir}")
+    
+    print(f"Searching for FlagGems in {flaggems_dir}")
     gems_repo = subprocess.check_output(
         ["find", flaggems_dir, "-type", "d", "-name", "FlagGems"], text=True).strip()
+    print(f"Found FlagGems repo: {gems_repo}")
+    
+    if not gems_repo:
+        print(f"FlagGems repository not found in {flaggems_dir}")
+        return 1  # Return error code
     del_file_path = os.path.join(gems_repo, 'benchmark')
+    print(f"Benchmark directory: {del_file_path}")
+    
     # 删除历史日志
-    # del_file = os.path.join(del_file_path,
-    #                       f"result_test_distribution_perf--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
     del_file = os.path.join(del_file_path,
                             f"result--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
-    del_process = subprocess.Popen(["rm", del_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    print(f"Deleting old log file: {del_file}")
+    del_process = subprocess.Popen(["rm", "-f", del_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     del_process.communicate()
-    p = subprocess.Popen(
-        # 执行所有算子命令
-        f"cd {os.path.join(gems_repo, 'benchmark')} && pytest --level core --mode {mode} --warmup {warmup} --record log",
-        # 执行单个算子命令
-        # f"cd {os.path.join(gems_repo, 'benchmark')} && pytest -m mm --level core --mode {mode} --warmup {warmup} --record log -s",
-        # 执行单个文件命令
-        # f"cd {os.path.join(gems_repo, 'benchmark')} && pytest test_distribution_perf.py --level core --mode {mode} --warmup {warmup} --record log",
-        shell=True
-    )
-    p.wait()
+    
+    # 执行性能测试命令
+    perf_cmd = f"cd {os.path.join(gems_repo, 'benchmark')} && pytest --level core --mode {mode} --warmup {warmup} --record log"
+    print(f"Running performance test: {perf_cmd}")
+    
+    p = subprocess.Popen(perf_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    stdout, _ = p.communicate()
+    print(f"Performance test output: {stdout.decode() if stdout else 'No output'}")
+    print(f"Performance test exit code: {p.returncode}")
 
     # 全量执行日志路径
     log_dir = os.path.join(gems_repo, "benchmark",
                            f"result--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
-    # 仅执行单个文件日志路径
-    # log_dir = os.path.join(gems_repo, "benchmark",
-    #                        f"result_test_distribution_perf--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
-    cp_subprocess = subprocess.run(["cp", f"{log_dir}", f"{result_log_dir}/result.log.txt"], check=True)
-    return p.returncode, cp_subprocess.returncode
+    print(f"Expected log file: {log_dir}")
+    print(f"Log file exists: {os.path.exists(log_dir)}")
+    
+    if os.path.exists(log_dir):
+        try:
+            cp_subprocess = subprocess.run(["cp", f"{log_dir}", f"{result_log_dir}/result.log.txt"], check=True)
+            print(f"Successfully copied log to {result_log_dir}/result.log.txt")
+            return p.returncode, cp_subprocess.returncode
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to copy log file: {e}")
+            return p.returncode, 1
+    else:
+        print(f"Log file not found: {log_dir}")
+        return p.returncode, 1
 
 grad_outputs = None
 
