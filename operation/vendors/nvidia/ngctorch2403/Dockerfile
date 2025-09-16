@@ -15,6 +15,9 @@ RUN mkdir -p $FLAGGEMS_WORK_DIR
 # 更新Triton到最新版本以支持exp2函数
 RUN pip3 install --upgrade triton
 
+# 升级pytest到最新版本
+RUN pip3 install --upgrade pytest
+
 # 克隆并安装FlagGems
 WORKDIR $FLAGGEMS_WORK_DIR
 RUN git clone https://github.com/FlagOpen/FlagGems.git
