@@ -229,9 +229,9 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     nnodes = len(config.HOSTS)
     framework = config.CASES[case]
 
-    op, df, spectflops, oplib, chip = case.split(":")
-    env_dir = os.path.join(config.FLAGPERF_PATH, "benchmarks", op,
-                           config.VENDOR, chip)
+    test_file, op, df, spectflops, oplib, chip = case.split(":")
+    env_dir = os.path.join(config.FLAGPERF_PATH, "benchmarks", test_file,
+                               config.VENDOR, chip)
 
     env_shell = os.path.join(env_dir, "env.sh")
     req_file = os.path.join(env_dir, "requirements.txt")
