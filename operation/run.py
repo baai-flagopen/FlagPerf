@@ -586,6 +586,7 @@ def main():
     check_cluster_deploy_path(dp_path)
     cases = get_valid_cases(config)
     log_test_configs(cases, curr_log_path, dp_path, config)
+    result_log_path = os.path.join(config.FLAGPERF_PATH, config.FLAGPERF_LOG_PATH)
 
     RUN_LOGGER.info("========= Step 2: Prepare and Run test cases. =========")
 
@@ -621,7 +622,10 @@ def main():
                     + " --nproc_per_node " + str(config.NPROC_PER_NODE) \
                     + " --log_dir " + os.path.join(dp_path, log_dir_container) \
                     + " --log_level " + config.FLAGPERF_LOG_LEVEL.upper() \
-                    + " --master_port " + config.MASTER_PORT
+                    + " --master_port " + config.MASTER_PORT \
+                    + " --mode " + config.MODE \
+                    + " --warmup " + str(config.WARMUP) \
+                    + " --result_log_path " + result_log_path
 
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases. ===")
 

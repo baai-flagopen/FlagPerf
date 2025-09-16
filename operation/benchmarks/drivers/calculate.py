@@ -9,7 +9,7 @@ import os
 import subprocess
 
 
-def do_correctness(operation):
+def do_correctness(operation, result_log_dir):
     flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/")
     try:
         gems_repo = subprocess.check_output(
@@ -52,13 +52,33 @@ def do_correctness(operation):
             test_file = os.path.join(tests_dir, test_filename)
             if os.path.exists(test_file):
                 print(f"Running correctness test for {operation} using {test_filename}")
-                # 使用pytest运行特定算子的测试
-                p = subprocess.Popen(
-                    f"cd {tests_dir} && python3 -m pytest {test_filename} -v -k 'test_accuracy_{operation}' --tb=short",
-                    shell=True
-                )
-                p.wait()
+                
+                # 创建日志文件路径
+                correctness_log = os.path.join(tests_dir, f"correctness_{operation}_test.log")
+                
+                # 删除历史日志
+                del_process = subprocess.Popen(["rm", "-f", correctness_log], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                del_process.communicate()
+                
+                # 使用pytest运行特定算子的测试，并将输出重定向到日志文件
+                with open(correctness_log, 'w') as log_file:
+                    p = subprocess.Popen(
+                        f"cd {tests_dir} && python3 -m pytest {test_filename} -v -k 'test_accuracy_{operation}' --tb=short",
+                        shell=True,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT
+                    )
+                    p.wait()
+                
                 print(f"Correctness test completed for {operation}, exit code: {p.returncode}")
+                
+                # 复制日志文件到结果目录
+                try:
+                    cp_subprocess = subprocess.run(["cp", correctness_log, f"{result_log_dir}/correctness.log.txt"], check=True)
+                    print(f"Correctness log copied to {result_log_dir}/correctness.log.txt")
+                except subprocess.CalledProcessError as e:
+                    print(f"Failed to copy correctness log: {e}")
+                
                 # 返回真实的测试结果：0表示成功，非0表示失败
                 return p.returncode
             else:
@@ -75,12 +95,33 @@ def do_correctness(operation):
             test_file = os.path.join(tests_dir, generic_test)
             if os.path.exists(test_file):
                 print(f"Found generic test file: {generic_test}")
-                p = subprocess.Popen(
-                    f"cd {tests_dir} && python3 -m pytest {generic_test} -v -k '{operation}' --tb=short",
-                    shell=True
-                )
-                p.wait()
+                
+                # 创建日志文件路径
+                correctness_log = os.path.join(tests_dir, f"correctness_{operation}_generic_test.log")
+                
+                # 删除历史日志
+                del_process = subprocess.Popen(["rm", "-f", correctness_log], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                del_process.communicate()
+                
+                # 使用pytest运行通用测试，并将输出重定向到日志文件
+                with open(correctness_log, 'w') as log_file:
+                    p = subprocess.Popen(
+                        f"cd {tests_dir} && python3 -m pytest {generic_test} -v -k '{operation}' --tb=short",
+                        shell=True,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT
+                    )
+                    p.wait()
+                
                 print(f"Generic test completed for {operation}, exit code: {p.returncode}")
+                
+                # 复制日志文件到结果目录
+                try:
+                    cp_subprocess = subprocess.run(["cp", correctness_log, f"{result_log_dir}/correctness.log.txt"], check=True)
+                    print(f"Correctness log copied to {result_log_dir}/correctness.log.txt")
+                except subprocess.CalledProcessError as e:
+                    print(f"Failed to copy correctness log: {e}")
+                
                 # 返回真实的测试结果
                 return p.returncode
                 
@@ -91,6 +132,40 @@ def do_correctness(operation):
     except Exception as e:
         print(f"Error during correctness check: {e}")
         return 0  # Skip correctness check on error
+
+
+        # test operation performance
+def do_performance(mode, warmup, result_log_dir):
+    flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/")
+    gems_repo = subprocess.check_output(
+        ["find", flaggems_dir, "-type", "d", "-name", "FlagGems"], text=True).strip()
+    del_file_path = os.path.join(gems_repo, 'benchmark')
+    # 删除历史日志
+    # del_file = os.path.join(del_file_path,
+    #                       f"result_test_distribution_perf--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
+    del_file = os.path.join(del_file_path,
+                            f"result--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
+    del_process = subprocess.Popen(["rm", del_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    del_process.communicate()
+    p = subprocess.Popen(
+        # 执行所有算子命令
+        f"cd {os.path.join(gems_repo, 'benchmark')} && pytest --level core --mode {mode} --warmup {warmup} --record log",
+        # 执行单个算子命令
+        # f"cd {os.path.join(gems_repo, 'benchmark')} && pytest -m mm --level core --mode {mode} --warmup {warmup} --record log -s",
+        # 执行单个文件命令
+        # f"cd {os.path.join(gems_repo, 'benchmark')} && pytest test_distribution_perf.py --level core --mode {mode} --warmup {warmup} --record log",
+        shell=True
+    )
+    p.wait()
+
+    # 全量执行日志路径
+    log_dir = os.path.join(gems_repo, "benchmark",
+                           f"result--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
+    # 仅执行单个文件日志路径
+    # log_dir = os.path.join(gems_repo, "benchmark",
+    #                        f"result_test_distribution_perf--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
+    cp_subprocess = subprocess.run(["cp", f"{log_dir}", f"{result_log_dir}/result.log.txt"], check=True)
+    return p.returncode, cp_subprocess.returncode
 
 grad_outputs = None
 
