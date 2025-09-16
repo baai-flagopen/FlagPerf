@@ -16,7 +16,7 @@ RUN mkdir -p $FLAGGEMS_WORK_DIR
 WORKDIR $FLAGGEMS_WORK_DIR
 RUN git clone https://github.com/FlagOpen/FlagGems.git
 WORKDIR $FLAGGEMS_WORK_DIR/FlagGems
-RUN git checkout 801377f03ba4649bc2d839ff34e38be66ee8a633
+
 RUN pip3 install -e .
 
 # 设置工作目录回到根目录
