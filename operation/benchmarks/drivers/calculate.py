@@ -29,27 +29,74 @@ def do_correctness(operation, result_log_dir):
             print(f"Tests directory not found: {tests_dir}")
             return 0  # Skip correctness check
             
-        # 根据算子类型映射到对应的测试文件
+        # 根据算子类型映射到对应的测试文件（基于真实的FlagGems测试文件结构）
         operation_to_testfile = {
-            "mm": "test_blas_ops.py",
-            "bmm": "test_blas_ops.py", 
-            "addmm": "test_blas_ops.py",
-            "mv": "test_blas_ops.py",
-            "outer": "test_blas_ops.py",
-            "add": "test_binary_pointwise_ops.py",
-            "sub": "test_binary_pointwise_ops.py",
-            "mul": "test_binary_pointwise_ops.py",
-            "div": "test_binary_pointwise_ops.py",
-            "eq": "test_binary_pointwise_ops.py",
-            "ge": "test_binary_pointwise_ops.py",
-            "gt": "test_binary_pointwise_ops.py",
-            "le": "test_binary_pointwise_ops.py",
-            "lt": "test_binary_pointwise_ops.py",
-            "ne": "test_binary_pointwise_ops.py",
-            "softmax": "test_general_reduction_ops.py",
-            "layernorm": "test_norm_ops.py",
-            "mean": "test_general_reduction_ops.py",
-            "sum": "test_general_reduction_ops.py"
+            # BLAS operations (test_blas_ops.py) - 矩阵运算
+            "mm": "test_blas_ops.py",           # 矩阵乘法
+            "bmm": "test_blas_ops.py",          # 批量矩阵乘法
+            "addmm": "test_blas_ops.py",        # 矩阵加法乘法
+            "mv": "test_blas_ops.py",           # 矩阵向量乘法
+            "outer": "test_blas_ops.py",        # 外积
+            "linear": "test_blas_ops.py",       # 线性变换（暂时放这里）
+            
+            # Binary pointwise operations (test_binary_pointwise_ops.py) - 二元逐点运算
+            "add": "test_binary_pointwise_ops.py",        # 加法
+            "sub": "test_binary_pointwise_ops.py",        # 减法
+            "mul": "test_binary_pointwise_ops.py",        # 乘法
+            "div": "test_binary_pointwise_ops.py",        # 除法
+            "rsub": "test_binary_pointwise_ops.py",       # 反向减法
+            "pow": "test_binary_pointwise_ops.py",        # 幂运算
+            "eq": "test_binary_pointwise_ops.py",         # 等于比较
+            "ge": "test_binary_pointwise_ops.py",         # 大于等于
+            "gt": "test_binary_pointwise_ops.py",         # 大于
+            "le": "test_binary_pointwise_ops.py",         # 小于等于
+            "lt": "test_binary_pointwise_ops.py",         # 小于
+            "ne": "test_binary_pointwise_ops.py",         # 不等于
+            "bitwise_and": "test_binary_pointwise_ops.py", # 按位与
+            "bitwise_or": "test_binary_pointwise_ops.py",  # 按位或
+            
+            # Unary pointwise operations (test_unary_pointwise_ops.py) - 一元逐点运算
+            "abs": "test_unary_pointwise_ops.py",         # 绝对值
+            "cos": "test_unary_pointwise_ops.py",         # 余弦
+            "sin": "test_unary_pointwise_ops.py",         # 正弦
+            "tanh": "test_unary_pointwise_ops.py",        # 双曲正切
+            "exp": "test_unary_pointwise_ops.py",         # 指数
+            "reciprocal": "test_unary_pointwise_ops.py",  # 倒数
+            "rsqrt": "test_unary_pointwise_ops.py",       # 平方根倒数
+            "neg": "test_unary_pointwise_ops.py",         # 取负
+            "relu": "test_unary_pointwise_ops.py",        # ReLU激活
+            "sigmoid": "test_unary_pointwise_ops.py",     # Sigmoid激活
+            "silu": "test_unary_pointwise_ops.py",        # SiLU激活
+            "gelu": "test_unary_pointwise_ops.py",        # GELU激活
+            "isinf": "test_unary_pointwise_ops.py",       # 无穷判断
+            "isnan": "test_unary_pointwise_ops.py",       # NaN判断
+            "triu": "test_unary_pointwise_ops.py",        # 上三角
+            "bitwise_not": "test_unary_pointwise_ops.py", # 按位非
+            
+            # General reduction operations (test_general_reduction_ops.py) - 通用归约运算
+            "mean": "test_general_reduction_ops.py",      # 均值
+            "sum": "test_general_reduction_ops.py",       # 求和
+            "max": "test_general_reduction_ops.py",       # 最大值
+            "min": "test_general_reduction_ops.py",       # 最小值
+            "prod": "test_general_reduction_ops.py",      # 乘积
+            "all": "test_general_reduction_ops.py",       # 全部为真
+            
+            # Advanced reduction operations (test_reduction_ops.py) - 高级归约运算
+            "amax": "test_reduction_ops.py",              # 绝对值最大
+            "argmax": "test_reduction_ops.py",            # 最大值索引
+            "softmax": "test_reduction_ops.py",           # Softmax
+            "log_softmax": "test_reduction_ops.py",       # Log Softmax
+            "cross_entropy_loss": "test_reduction_ops.py", # 交叉熵损失
+            
+            # Normalization operations (test_norm_ops.py) - 归一化运算
+            "layer_norm": "test_norm_ops.py",             # 层归一化（映射到layernorm）
+            "layernorm": "test_norm_ops.py",              # 层归一化（FlagGems实际名称）
+            "group_norm": "test_norm_ops.py",             # 组归一化  
+            "native_group_norm": "test_norm_ops.py",      # 原生组归一化
+            
+            # Special operations (test_special_ops.py) - 特殊运算
+            "dropout": "test_special_ops.py",             # Dropout
+            "native_dropout": "test_special_ops.py"       # 原生Dropout
         }
         
         test_filename = operation_to_testfile.get(operation)
