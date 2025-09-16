@@ -29,10 +29,6 @@ class ContainerManager():
         run_new_cmd = "docker run " + container_run_args + \
                       " --name=" + self.name + " \"" + docker_image + "\" " + \
                       "sleep infinity"
-        print("=" * 80)
-        print("完整的Docker Run命令 (可直接用于--custom-docker-cmd测试):")
-        print(run_new_cmd)
-        print("=" * 80)
         ret, outs = run_cmd.run_cmd_wait(run_new_cmd, 10)
         return ret, outs
 
@@ -49,9 +45,7 @@ class ContainerManager():
 
         exec_cmd = exec_cmd_head + self.name + " bash -c \"" \
                                              + cmd_in_container + "\""
-        print("run cmd in:", exec_cmd)
         ret, outs = run_cmd.run_cmd_wait(exec_cmd, timeout)
-        print("ret:", ret, " outs:", outs[0])
         return ret, outs
 
     def start(self):
