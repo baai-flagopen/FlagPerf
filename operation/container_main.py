@@ -121,6 +121,7 @@ if __name__ == "__main__":
     start_cmd += " --dataformat=" + dataformat
     start_cmd += " --oplib=" + oplib
     start_cmd += " --chip=" + chip
+    start_cmd += " --mode=" + config.mode
     start_cmd += " --warmup=" + config.warmup
     start_cmd += " --log_dir=" + config.log_dir
     start_cmd += " --result_log_path=" + config.result_log_path
