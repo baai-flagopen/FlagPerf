@@ -1,4 +1,4 @@
-FLAGPERF_PATH: "/home/baai/FlagPerf/operation"
+FLAGPERF_PATH: "/home/secure/FlagPerf/operation"
 FLAGPERF_LOG_PATH: "result"
 ##nvidia,iluvatar,or other
 #VENDOR: "nvidia"
