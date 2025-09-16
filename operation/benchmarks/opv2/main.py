@@ -74,13 +74,31 @@ def parse_args():
 
 
 def main(config):
-    correctness = do_correctness(config.case_name, config.log_dir)
-    correctness = correctness == 0
+    print("=== Starting main function ===")
+    print(f"Config: {config}")
+    print(f"Case name: {config.case_name}")
+    print(f"Log dir: {config.log_dir}")
+    
+    try:
+        print("=== Starting correctness test ===")
+        correctness = do_correctness(config.case_name, config.log_dir)
+        correctness = correctness == 0
+        print(f"Correctness result: {correctness}")
 
-    # test operation performance
-    performance = do_performance(config.mode, config.warmup, config.log_dir)
-    performance = performance == 0
-    parse_log_file(config.spectflops, config.mode, config.warmup, config.log_dir, config.result_log_path)
+        print("=== Starting performance test ===")
+        # test operation performance
+        performance = do_performance(config.mode, config.warmup, config.log_dir)
+        performance = performance == 0
+        print(f"Performance result: {performance}")
+        
+        print("=== Starting log parsing ===")
+        parse_log_file(config.spectflops, config.mode, config.warmup, config.log_dir, config.result_log_path)
+        print("=== Log parsing completed ===")
+        
+    except Exception as e:
+        print(f"Error in main function: {e}")
+        import traceback
+        traceback.print_exc()
 
     # dtype = {
     #     "FP32": torch.float32,
@@ -119,10 +137,16 @@ if __name__ == "__main__":
     # case_config.update(case_config_vendor)
     # case_config = Namespace(**case_config)
 
+    print("=== Program started ===")
+    print(f"Arguments received: {config}")
+    
     if config.oplib == "flaggems":
         import flag_gems
         flag_gems.enable()
         print("Using flaggems")
     else:
         print("Using nativetorch")
+    
+    print("=== Calling main function ===")
     main(config)
+    print("=== Program completed ===")
