@@ -31,7 +31,7 @@ ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
 # "operation:dataFormat:chip": "docker_images"
 # now only support flaggems and nativepytorch
 MODE: "operator"
-WARMUP: 1000
+WARMUP: 0
 
 CASES:
     "opv2:mm:FP16:312:nativetorch:A100_40_SXM": "ngctorch2403"
