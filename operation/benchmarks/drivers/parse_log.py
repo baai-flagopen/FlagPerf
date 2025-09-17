@@ -85,6 +85,17 @@ def get_result_data(log_file, res, spectflops, mode, warmup):
                                 "no_warmup_latency": no_warmup_latency
                             }
                             res[f"{op_name}_{dtype}_{shape_detail}"].update(parse_data)
+                        elif mode == "operator" and warmup == "0":
+                            # 处理operator模式无预热情况，类似于cpu模式
+                            no_warmup_latency = result.get("latency")
+                            parse_data = {
+                                "op_name": op_name,
+                                "dtype": dtype,
+                                "shape_detail": shape_detail,
+                                "latency_base_operator_nowarm": latency_base,
+                                "no_warmup_latency": no_warmup_latency
+                            }
+                            res[f"{op_name}_{dtype}_{shape_detail}"].update(parse_data)
                         elif mode == "cpu" and warmup != "0":
                             warmup_latency = result.get("latency")
                             raw_throughput = 1 / float(warmup_latency)
