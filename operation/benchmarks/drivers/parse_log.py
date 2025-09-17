@@ -15,27 +15,44 @@ def parse_log_file(spectflops, mode, warmup, log_dir, result_log_path):
     correctness_log_file = os.path.join(log_dir, "correctness.log.txt")
     save_log_path = os.path.join(result_log_path, "result.json")
     
+    # 统一处理逻辑，避免重复代码
+    def process_and_save_data():
+        res = defaultdict(dict)
+        # 处理性能测试日志
+        result_data = get_result_data(performance_log_file, res, spectflops, mode, warmup)
+        # 处理正确性测试日志
+        result_data = get_correctness_data(correctness_log_file, result_data)
+        return result_data
+    
     if os.path.isfile(save_log_path):
         with open(save_log_path, 'r+', encoding='utf-8') as file_r:
             try:
                 file_r_json = file_r.read()
-                res = json.loads(file_r_json)
+                if file_r_json.strip():  # 检查文件内容不为空
+                    res = json.loads(file_r_json)
+                else:
+                    print("JSON file is empty, initializing new data")
+                    res = defaultdict(dict)
+                
                 # 处理性能测试日志
                 result_data = get_result_data(performance_log_file, res, spectflops, mode, warmup)
                 # 处理正确性测试日志
                 result_data = get_correctness_data(correctness_log_file, result_data)
+                
                 file_r.seek(0)
                 file_r.write(json.dumps(result_data, ensure_ascii=False))
                 file_r.truncate()
-            except json.decoder.JSONDecodeError:
-                print("JSONDecodeError json file content is None")
+                
+            except json.decoder.JSONDecodeError as e:
+                print(f"JSONDecodeError: {e}, reinitializing data")
+                # JSON解析失败时，重新处理数据
+                result_data = process_and_save_data()
+                file_r.seek(0)
+                file_r.write(json.dumps(result_data, ensure_ascii=False))
+                file_r.truncate()
     else:
         with open(save_log_path, 'w') as file_w:
-            res = defaultdict(dict)
-            # 处理性能测试日志
-            result_data = get_result_data(performance_log_file, res, spectflops, mode, warmup)
-            # 处理正确性测试日志
-            result_data = get_correctness_data(correctness_log_file, result_data)
+            result_data = process_and_save_data()
             file_w.write(json.dumps(result_data, ensure_ascii=False))
 
 
@@ -100,6 +117,46 @@ def get_result_data(log_file, res, spectflops, mode, warmup):
                                 "dtype": dtype,
                                 "shape_detail": shape_detail,
                                 "latency_base_cuda_warm": latency_base,
+                                "kerneltime": kerneltime,
+                                "core_throughput": core_throughput,
+                                "ktflops": ktflops,
+                                "kfu": kfu
+                            }
+                            res[f"{op_name}_{dtype}_{shape_detail}"].update(parse_data)
+                        elif mode == "operator" and warmup != "0":
+                            # 处理operator模式，类似于cpu模式
+                            warmup_latency = result.get("latency")
+                            raw_throughput = 1 / float(warmup_latency)
+                            ctflops = result.get("tflops")
+                            if ctflops is None:
+                                cfu = None
+                            else:
+                                cfu = round(100.0 * float(ctflops) / 1e12 / float(spectflops), 2)
+                            parse_data = {
+                                "op_name": op_name,
+                                "dtype": dtype,
+                                "shape_detail": shape_detail,
+                                "latency_base_operator_warm": latency_base,
+                                "warmup_latency": warmup_latency,
+                                "raw_throughput": raw_throughput,
+                                "ctflops": ctflops,
+                                "cfu": cfu
+                            }
+                            res[f"{op_name}_{dtype}_{shape_detail}"].update(parse_data)
+                        elif mode == "kernel" and warmup != "0":
+                            # 处理kernel模式，类似于cuda模式
+                            kerneltime = result.get("latency")
+                            core_throughput = 1 / float(kerneltime)
+                            ktflops = result.get("tflops")
+                            if ktflops is None:
+                                kfu = None
+                            else:
+                                kfu = round(100.0 * float(ktflops) / 1E12 / float(spectflops), 2)
+                            parse_data = {
+                                "op_name": op_name,
+                                "dtype": dtype,
+                                "shape_detail": shape_detail,
+                                "latency_base_kernel_warm": latency_base,
                                 "kerneltime": kerneltime,
                                 "core_throughput": core_throughput,
                                 "ktflops": ktflops,
