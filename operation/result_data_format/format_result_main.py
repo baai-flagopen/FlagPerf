@@ -8,6 +8,7 @@ import os
 import sys
 import yaml
 from argparse import Namespace
+from collections import defaultdict
 
 CURR_PATH = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.abspath(os.path.join(CURR_PATH, "../")))
@@ -15,11 +16,11 @@ OP_PATH = os.path.abspath(os.path.join(CURR_PATH, "../"))
 from formatMDfile import *
 
 
-def main(vendor, shm_size, chip):
-    # 查找最新的时间戳目录
-    result_base_dir = os.path.join(OP_PATH, "result")
-    
-    # 获取所有时间戳目录
+def find_valid_timestamp_dirs(result_base_dir, max_count=3):
+    """
+    查找包含有效result.json的时间戳目录
+    返回最多max_count个有效的时间戳目录路径
+    """
     timestamp_dirs = []
     if os.path.exists(result_base_dir):
         for item in os.listdir(result_base_dir):
@@ -29,30 +30,151 @@ def main(vendor, shm_size, chip):
     
     if not timestamp_dirs:
         print("No timestamp directories found in result folder")
+        return []
+    
+    # 按时间戳排序，最新的在最后
+    sorted_timestamp_dirs = sorted(timestamp_dirs)
+    valid_dirs = []
+    
+    # 从最新的开始检查，向前查找
+    for timestamp_dir in reversed(sorted_timestamp_dirs):
+        if len(valid_dirs) >= max_count:
+            break
+            
+        timestamp_path = os.path.join(result_base_dir, timestamp_dir)
+        result_json_path = os.path.join(timestamp_path, "result.json")
+        
+        # 检查result.json是否存在且不为空
+        if os.path.exists(result_json_path):
+            try:
+                with open(result_json_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:  # 文件不为空
+                        json_data = json.loads(content)
+                        if json_data:  # JSON内容不为空
+                            valid_dirs.append(timestamp_path)
+                            print(f"Found valid result.json in: {timestamp_path}")
+                        else:
+                            print(f"Skipping empty JSON in: {timestamp_path}")
+                    else:
+                        print(f"Skipping empty file: {result_json_path}")
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"Skipping invalid JSON in {timestamp_path}: {e}")
+        else:
+            print(f"Skipping directory without result.json: {timestamp_path}")
+    
+    return valid_dirs
+
+
+def merge_result_json_files(valid_dirs):
+    """
+    合并多个result.json文件，根据shape_detail进行匹配
+    """
+    merged_data = defaultdict(dict)
+    
+    for dir_path in valid_dirs:
+        result_json_path = os.path.join(dir_path, "result.json")
+        print(f"Processing: {result_json_path}")
+        
+        try:
+            with open(result_json_path, 'r', encoding='utf-8') as f:
+                json_data = json.loads(f.read())
+                
+                for key, value in json_data.items():
+                    # 提取shape_detail作为匹配键
+                    shape_detail = value.get("shape_detail", "")
+                    op_name = value.get("op_name", "")
+                    dtype = value.get("dtype", "")
+                    
+                    # 创建唯一标识符：op_name_dtype_shape_detail
+                    unique_key = f"{op_name}_{dtype}_{shape_detail}"
+                    
+                    # 合并数据到unique_key下
+                    if unique_key not in merged_data:
+                        merged_data[unique_key] = {}
+                    
+                    # 更新所有字段
+                    merged_data[unique_key].update(value)
+                    print(f"  Merged data for: {unique_key}")
+                    
+        except Exception as e:
+            print(f"Error processing {result_json_path}: {e}")
+    
+    return dict(merged_data)
+
+
+def find_correctness_log_dir(valid_dirs):
+    """
+    在有效目录中查找包含correctness.log.txt的目录
+    """
+    for dir_path in valid_dirs:
+        correctness_log_path = os.path.join(dir_path, "correctness.log.txt")
+        if os.path.exists(correctness_log_path):
+            try:
+                # 检查文件是否为空
+                with open(correctness_log_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:  # 文件不为空
+                        print(f"Found valid correctness.log.txt in: {dir_path}")
+                        return dir_path
+                    else:
+                        print(f"Skipping empty correctness.log.txt in: {dir_path}")
+            except Exception as e:
+                print(f"Error reading correctness.log.txt in {dir_path}: {e}")
+        else:
+            print(f"No correctness.log.txt found in: {dir_path}")
+    
+    print("Warning: No valid correctness.log.txt found in any directory")
+    return None
+
+
+def main(vendor, shm_size, chip):
+    result_base_dir = os.path.join(OP_PATH, "result")
+    
+    # 查找最多3个有效的时间戳目录
+    valid_dirs = find_valid_timestamp_dirs(result_base_dir, max_count=3)
+    
+    if not valid_dirs:
+        print("No valid timestamp directories with result.json found")
         return
     
-    # 按时间戳排序，获取最新的
-    latest_timestamp_dir = sorted(timestamp_dirs)[-1]
-    latest_result_dir = os.path.join(result_base_dir, latest_timestamp_dir)
+    print(f"Found {len(valid_dirs)} valid directories for merging")
     
-    print(f"Using latest result directory: {latest_result_dir}")
+    # 合并所有result.json文件
+    merged_data = merge_result_json_files(valid_dirs)
     
-    # result.json直接在时间戳目录中
-    result_json_file_path = os.path.join(latest_result_dir, "result.json")
-    
-    if not os.path.exists(result_json_file_path):
-        print(f"result.json not found in {latest_result_dir}")
+    if not merged_data:
+        print("No data to merge")
         return
     
-    print(f"Found result.json at: {result_json_file_path}")
+    print(f"Merged data contains {len(merged_data)} unique entries")
     
-    # README.md生成在时间戳目录中（与result.json同一目录）
-    readme_output_dir = latest_result_dir
+    # 将合并后的数据保存到result目录下（不在时间戳目录内）
+    merged_json_path = os.path.join(result_base_dir, "merged_result.json")
+    with open(merged_json_path, 'w', encoding='utf-8') as f:
+        json.dump(merged_data, f, ensure_ascii=False, indent=2)
+    print(f"Saved merged data to: {merged_json_path}")
     
-    # render_base(readme_output_dir, vendor, shm_size, chip)
-    with open(result_json_file_path, 'r') as f:
-        content = json.loads(f.read())
-        render(content, readme_output_dir, vendor, shm_size, chip)
+    # 生成最终的MD文件到result目录下（覆盖上一次结果）
+    readme_output_dir = result_base_dir
+    
+    # 查找包含correctness.log.txt的目录
+    correctness_source_dir = find_correctness_log_dir(valid_dirs)
+    if correctness_source_dir is None:
+        correctness_source_dir = readme_output_dir
+        print("Warning: No correctness.log.txt found in any valid directories")
+    
+    render(merged_data, correctness_source_dir, vendor, shm_size, chip)
+    
+    # 将生成的README.md移动到result目录下
+    source_readme = os.path.join(correctness_source_dir, "README.md")
+    target_readme = os.path.join(readme_output_dir, "README.md")
+    if source_readme != target_readme and os.path.exists(source_readme):
+        import shutil
+        shutil.move(source_readme, target_readme)
+        print(f"Moved README.md to: {target_readme}")
+    else:
+        print(f"Generated final README.md in: {target_readme}")
 
 
 

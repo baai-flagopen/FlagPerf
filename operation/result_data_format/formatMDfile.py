@@ -8,7 +8,7 @@ def render(extracted_values, readme_file_path, vendor, shm_size, chip):
         json_data.append(value)
     dest_file_path = os.path.join(readme_file_path, "README.md")
     
-    # 解析正确性测试结果
+    # 直接使用parse_correctness_log从文件解析正确性结果
     correctness_result = parse_correctness_log(readme_file_path)
     
     # 生成Markdown内容
