@@ -52,7 +52,7 @@ def create_markdown_content(data, vendor, shm_size, chip, correctness_result):
     content += "| --- | ---| --- | ---| --- | ---| --- | ---| --- | ---| --- |\n"
     
     for row in data:
-        content += f"| {row['op_name']} | {row['dtype']} | {row['shape_detail']} | {row['no_warmup_latency']} | {row['warmup_latency']} | {row['raw_throughput']} | {row['core_throughput']} | {row['ctflops']} | {row['cfu']} | {row['ktflops']} | {row['kfu']} |\n"
+        content += f"| {row.get('op_name', 'N/A')} | {row.get('dtype', 'N/A')} | {row.get('shape_detail', 'N/A')} | {row.get('no_warmup_latency', 'N/A')} | {row.get('warmup_latency', 'N/A')} | {row.get('raw_throughput', 'N/A')} | {row.get('core_throughput', 'N/A')} | {row.get('ctflops', 'N/A')} | {row.get('cfu', 'N/A')} | {row.get('ktflops', 'N/A')} | {row.get('kfu', 'N/A')} |\n"
     
     return content
 
