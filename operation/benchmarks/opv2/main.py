@@ -144,26 +144,30 @@ def main(config):
     #              latency_nowarm, latency_warm)
 
 if __name__ == "__main__":
-    config = parse_args()
-    # with open("case_config.yaml", "r") as file:
-    #     case_config = yaml.safe_load(file)
-    # adapt_torch(config.vendor)
-    # with open(os.path.join(config.vendor, config.chip, "case_config.yaml"),
-    #           "r") as file:
-    #     case_config_vendor = yaml.safe_load(file)
-    # case_config.update(case_config_vendor)
-    # case_config = Namespace(**case_config)
-
-    print("=== Program started ===")
-    print(f"Arguments received: {config}")
+    print("=== Starting opv2/main.py ===")
+    print(f"Python version: {sys.version}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Command line arguments: {sys.argv}")
     
-    if config.oplib == "flaggems":
-        import flag_gems
-        flag_gems.enable()
-        print("Using flaggems")
-    else:
-        print("Using nativetorch")
-    
-    print("=== Calling main function ===")
-    main(config)
-    print("=== Program completed ===")
+    try:
+        config = parse_args()
+        print("=== Arguments parsed successfully ===")
+        print(f"Arguments received: {config}")
+        
+        if config.oplib == "flaggems":
+            import flag_gems
+            flag_gems.enable()
+            print("Using flaggems")
+        else:
+            print("Using nativetorch")
+        
+        print("=== Calling main function ===")
+        main(config)
+        print("=== Program completed successfully ===")
+        
+    except Exception as e:
+        print(f"=== ERROR in main execution: {e} ===")
+        import traceback
+        traceback.print_exc()
+        print("=== Program failed ===")
+        sys.exit(1)
