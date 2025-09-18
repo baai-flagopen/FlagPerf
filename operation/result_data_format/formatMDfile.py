@@ -30,12 +30,6 @@ def create_markdown_content(data, vendor, shm_size, chip, correctness_result):
         content += f"**测试状态**: {correctness_result['status']}\n\n"
         content += f"**总体结果**: {correctness_result['summary']}\n\n"
         
-        if correctness_result.get('details'):
-            content += "**详细信息**:\n\n"
-            content += "```\n"
-            content += correctness_result['details']
-            content += "\n```\n\n"
-        
         if correctness_result.get('test_results'):
             content += "**各测试项结果**:\n\n"
             for test_name, result in correctness_result['test_results'].items():
