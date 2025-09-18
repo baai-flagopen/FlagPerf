@@ -9,11 +9,63 @@ import sys
 import yaml
 from argparse import Namespace
 from collections import defaultdict
+import ast
 
 CURR_PATH = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.abspath(os.path.join(CURR_PATH, "../")))
 OP_PATH = os.path.abspath(os.path.join(CURR_PATH, "../"))
 from formatMDfile import *
+
+
+def extract_arrays_from_shape_detail(shape_detail):
+    """
+    从shape_detail中提取所有的数组，忽略其他类型的数据
+    返回：(arrays_only_string, formatted_display_string)
+    """
+    try:
+        # 如果shape_detail是字符串，尝试解析为Python对象
+        if isinstance(shape_detail, str):
+            try:
+                parsed_data = ast.literal_eval(shape_detail)
+            except:
+                # 如果解析失败，直接返回原字符串
+                return shape_detail, shape_detail
+        else:
+            parsed_data = shape_detail
+        
+        # 提取所有的数组（列表）
+        arrays = []
+        
+        def extract_arrays_recursive(data):
+            """递归提取所有数组"""
+            if isinstance(data, list):
+                # 检查这个列表是否是数值数组
+                if all(isinstance(x, (int, float)) for x in data) and len(data) > 0:
+                    arrays.append(data)
+                else:
+                    # 如果不是纯数值数组，递归检查子元素
+                    for item in data:
+                        extract_arrays_recursive(item)
+        
+        extract_arrays_recursive(parsed_data)
+        
+        if arrays:
+            # 用于匹配的字符串（只包含数组）
+            arrays_only = str(arrays)
+            # 用于显示的字符串（格式化的数组）
+            display_arrays = []
+            for arr in arrays:
+                if isinstance(arr, list):
+                    display_arrays.append(f"[{', '.join(map(str, arr))}]")
+            display_string = ", ".join(display_arrays)
+            return arrays_only, display_string
+        else:
+            # 如果没有找到数组，返回原始值
+            return str(shape_detail), str(shape_detail)
+            
+    except Exception as e:
+        print(f"Error parsing shape_detail {shape_detail}: {e}")
+        return str(shape_detail), str(shape_detail)
 
 
 def find_valid_timestamp_dirs(result_base_dir, max_count=3):
@@ -68,7 +120,8 @@ def find_valid_timestamp_dirs(result_base_dir, max_count=3):
 
 def merge_result_json_files(valid_dirs):
     """
-    合并多个result.json文件，根据shape_detail进行匹配
+    合并多个result.json文件，根据op_name、dtype、shape_detail三个字段进行匹配
+    只有这三个字段完全一样的数据才会合并
     """
     merged_data = defaultdict(dict)
     
@@ -81,21 +134,30 @@ def merge_result_json_files(valid_dirs):
                 json_data = json.loads(f.read())
                 
                 for key, value in json_data.items():
-                    # 提取shape_detail作为匹配键
-                    shape_detail = value.get("shape_detail", "")
+                    # 提取三个关键字段作为匹配条件
                     op_name = value.get("op_name", "")
                     dtype = value.get("dtype", "")
+                    shape_detail_raw = value.get("shape_detail", "")
                     
-                    # 创建唯一标识符：op_name_dtype_shape_detail
-                    unique_key = f"{op_name}_{dtype}_{shape_detail}"
+                    # 从shape_detail中提取数组部分用于匹配
+                    arrays_only, display_shape = extract_arrays_from_shape_detail(shape_detail_raw)
+                    
+                    # 创建唯一标识符：op_name_dtype_arrays_only
+                    # 只有算子名、数据类型、数组形状完全一样的数据才会合并
+                    unique_key = f"{op_name}_{dtype}_{arrays_only}"
                     
                     # 合并数据到unique_key下
                     if unique_key not in merged_data:
                         merged_data[unique_key] = {}
+                        print(f"  Creating new entry for: {op_name}_{dtype}_{display_shape}")
+                    else:
+                        print(f"  Merging data into existing entry: {op_name}_{dtype}_{display_shape}")
                     
-                    # 更新所有字段
+                    # 更新所有字段（相同unique_key的数据会合并字段）
                     merged_data[unique_key].update(value)
-                    print(f"  Merged data for: {unique_key}")
+                    
+                    # 更新shape_detail为只包含数组的显示格式
+                    merged_data[unique_key]["shape_detail"] = display_shape
                     
         except Exception as e:
             print(f"Error processing {result_json_path}: {e}")
