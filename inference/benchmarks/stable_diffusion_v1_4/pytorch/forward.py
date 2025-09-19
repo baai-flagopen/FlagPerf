@@ -40,8 +40,7 @@ def model_forward(model, dataloader, evaluator, config):
     vae.eval()
     text_encoder.eval()
 
-    metric = CLIPScore(model_name_or_path=config.data_dir + "/" +
-                       config.eval_weights)
+    metric = CLIPScore(model_name_or_path=config.eval_weights)
     metric.eval()
 
     generator = torch.Generator().manual_seed(config.random_seed)
@@ -152,8 +151,7 @@ def engine_forward(model, dataloader, evaluator, config):
     vae.eval()
     text_encoder.eval()
 
-    metric = CLIPScore(model_name_or_path=config.data_dir + "/" +
-                       config.eval_weights)
+    metric = CLIPScore(model_name_or_path=config.eval_weights)
     metric.eval()
 
     generator = torch.Generator().manual_seed(config.random_seed)
