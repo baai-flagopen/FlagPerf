@@ -388,7 +388,13 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, config,
                            + " -w " + config.FLAGPERF_PATH \
                            + " --shm-size=" + config.SHM_SIZE \
                            + " -v " + dp_path + ":" \
-                           + config.FLAGPERF_PATH
+                           + config.FLAGPERF_PATH \
+                           + " -v " + os.path.join(dp_path, "..") + ":" \
+                           + os.path.join(config.FLAGPERF_PATH, "..") \
+                           + " -v " + case_config["data_dir_host"] + ":" \
+                           + case_config["data_dir_container"] \
+                           + " -v " + "/home/secure/data/stable_diffusion/val/clip-vit-base-patch32" + ":" \
+                           + "/root/.cache/huggingface/hub/models--openai--clip-vit-base-patch32/snapshots/main"
     if config.ACCE_CONTAINER_OPT is not None:
         container_start_args += " " + config.ACCE_CONTAINER_OPT
 
