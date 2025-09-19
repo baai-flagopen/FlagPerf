@@ -209,11 +209,11 @@ def prepare_running_env(dp_path, container_name, case_config):
 def start_container_in_cluster(dp_path, run_args, container_name, image_name,
                                nnodes):
     '''Call CLUSTER_MGR tool to start containers.'''
-    start_cmd = "cd " + dp_path + " && " + sys.executable \
-                + " ../utils/container_manager.py -o runnew " \
-                + " -c " + container_name + " -i " + image_name + " -a \"" \
-                + run_args + "\""
+    # 直接构建docker命令，避免多层shell转义问题
+    direct_docker_cmd = "docker run " + run_args + " --name=" + container_name + " " + image_name + " sleep infinity"
+    start_cmd = direct_docker_cmd
     logger.debug("Run cmd in the cluster to start container: " + start_cmd)
+    logger.debug("[DEBUG] Container run_args: " + run_args)
     bad_hosts = CLUSTER_MGR.run_command_some_hosts(start_cmd, nnodes, 600)
     if len(bad_hosts) != 0:
         logger.error("Hosts that can't start docker container: " +
