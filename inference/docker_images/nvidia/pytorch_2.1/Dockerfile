@@ -7,6 +7,9 @@ RUN pip3 install loguru
 RUN pip3 install pycuda
 RUN pip3 install schedule
 RUN pip3 install munch
+# 添加推理测试所需依赖
+RUN pip3 install pandas
+RUN pip3 install transformers==4.40.0
 
 # 添加FlagGems支持
 ENV FLAGGEMS_WORK_DIR /workspace
