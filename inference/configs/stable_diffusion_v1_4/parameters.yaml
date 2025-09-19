@@ -1,5 +1,5 @@
-weights: "weights_v1_4"
-eval_weights: "weights_evaluator"
+weights: "CompVis/stable-diffusion-v1-4"
+eval_weights: "openai/clip-vit-base-patch32"
 prompts: "data_vizwiz/val.json"
 random_seed: 0
 prompt_max_len: 77

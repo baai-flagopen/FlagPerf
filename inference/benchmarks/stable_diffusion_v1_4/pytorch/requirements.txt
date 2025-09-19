@@ -1,3 +1,4 @@
-transformers
-diffusers
+transformers==4.56.1
+diffusers==0.35.1
 torchmetrics
+accelerate==0.23.0
