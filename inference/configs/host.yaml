@@ -8,12 +8,16 @@ SSH_PORT: "22"
 HOSTS_PORTS: ["22"]
 MASTER_PORT: "29501"
 SHM_SIZE: "32G"
+
+DEVICE: 0
 #   metax:
 #       " --device=/dev/dri --device=/dev/mxcd --group-add video"
 ACCE_CONTAINER_OPT: " --gpus all"
 PIP_SOURCE: "https://pypi.tuna.tsinghua.edu.cn/simple"
 CLEAR_CACHES: True
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
+MODE: "kernel"
+WARMUP: 1000
 CASES: 
     # "resnet50:pytorch_1.13": "/raid/dataset/ImageNet/imagenet/val"
     #"vit_l_16:pytorch_2.1": "/raid/dataset/ImageNet_1k_2012/val"
