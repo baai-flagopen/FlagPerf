@@ -12,7 +12,7 @@ SHM_SIZE: "32G"
 #   metax:
 #       " --device=/dev/dri --device=/dev/mxcd --group-add video"
 ACCE_CONTAINER_OPT: " --gpus all"
-PIP_SOURCE: "https://mirror.baidu.com/pypi/simple"
+PIP_SOURCE: "https://pypi.tuna.tsinghua.edu.cn/simple"
 CLEAR_CACHES: True
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
 CASES: 
