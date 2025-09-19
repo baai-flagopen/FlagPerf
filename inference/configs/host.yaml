@@ -24,5 +24,5 @@ CASES:
     #"stable_diffusion_v1_4:pytorch_2.1": "/home/secure/data/stable_diffusion/val"
     #"stable_diffusion_v1_4:pytorch_2.0": "/raid/dataset/stable_diffusion_v1_4/"
     # "yolov5:pytorch_2.0": "/raid/dataset/coco2017/"
-    "deepseek_7b_mmlu:pytorch_2.1": "/home/secure"
+    "deepseek_7b_mmlu:pytorch_2.1": "/home/secure/mmlu_dataset/data/val"
     #"llama3_8b_mmlu:pytorch_2.1": "/raid/dataset/llama3_8b_mmlu"
