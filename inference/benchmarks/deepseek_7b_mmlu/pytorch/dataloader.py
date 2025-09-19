@@ -104,6 +104,22 @@ class mmlu(Dataset):
 
 
 def build_dataloader(config):
+    print(f"[DEBUG] Data dir: {config.data_dir}")
+    print(f"[DEBUG] Weight dir: {config.weight_dir}")
+    print(f"[DEBUG] MMLU dir: {config.mmlu_dir}")
+    
+    # Check paths
+    weight_path = os.path.join(config.data_dir, config.weight_dir)
+    mmlu_path = os.path.join(config.data_dir, config.mmlu_dir)
+    
+    print(f"[DEBUG] Weight path exists: {os.path.exists(weight_path)}")
+    print(f"[DEBUG] MMLU path exists: {os.path.exists(mmlu_path)}")
+    
+    if not os.path.exists(weight_path):
+        raise FileNotFoundError(f"Weight path does not exist: {weight_path}")
+    if not os.path.exists(mmlu_path):
+        raise FileNotFoundError(f"MMLU path does not exist: {mmlu_path}")
+    
     dataset = mmlu(config)
     assert config.batch_size == 1
     loader = DataLoader(dataset,
