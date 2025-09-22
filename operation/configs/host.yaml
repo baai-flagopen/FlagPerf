@@ -30,10 +30,11 @@ CLEAR_CACHES: True
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
 # "operation:dataFormat:chip": "docker_images"
 # now only support flaggems and nativepytorch
-MODE: "kernel"
-WARMUP: 1000
+MODE: "operator"
+WARMUP: 0
 
 CASES:
+    "opv2:add:FP16:312:nativetorch:A100_40_SXM": "ngctorch2403"
     "opv2:mm:FP16:312:nativetorch:A100_40_SXM": "ngctorch2403"
 #    "mm:FP16:312:flaggems:C550_64": "ngctorch2403"
 #    "mm:FP16:flaggems:A100_40_SXM": "ngctorch2403"
