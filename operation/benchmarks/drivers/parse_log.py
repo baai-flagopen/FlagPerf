@@ -28,7 +28,13 @@ def parse_log_file(spectflops, mode, warmup, log_dir, result_log_path):
                 
                 # 处理当前算子的性能测试日志（保持原有逻辑兼容性）
                 # 将现有数据传入get_result_data，让它在现有基础上添加新数据
-                result_data = get_result_data(performance_log_file, existing_data, spectflops, mode, warmup)
+                # 确保传入defaultdict类型
+                if not isinstance(existing_data, defaultdict):
+                    existing_data_dd = defaultdict(dict)
+                    existing_data_dd.update(existing_data)
+                else:
+                    existing_data_dd = existing_data
+                result_data = get_result_data(performance_log_file, existing_data_dd, spectflops, mode, warmup)
                 
                 # 注意：暂时不在这里处理正确性数据，留给后续的合并函数处理
                 # 这样避免了正确性数据被覆盖的问题
@@ -40,13 +46,13 @@ def parse_log_file(spectflops, mode, warmup, log_dir, result_log_path):
             except json.decoder.JSONDecodeError as e:
                 print(f"JSONDecodeError: {e}, reinitializing data")
                 # JSON解析失败时，重新处理数据
-                new_data = get_result_data(performance_log_file, {}, spectflops, mode, warmup)
+                new_data = get_result_data(performance_log_file, defaultdict(dict), spectflops, mode, warmup)
                 file_r.seek(0)
                 file_r.write(json.dumps(new_data, ensure_ascii=False, indent=2))
                 file_r.truncate()
     else:
         # 首次创建文件，只包含性能数据
-        performance_data = get_result_data(performance_log_file, {}, spectflops, mode, warmup)
+        performance_data = get_result_data(performance_log_file, defaultdict(dict), spectflops, mode, warmup)
         with open(save_log_path, 'w') as file_w:
             file_w.write(json.dumps(performance_data, ensure_ascii=False, indent=2))
     
@@ -60,6 +66,9 @@ def parse_log_file(spectflops, mode, warmup, log_dir, result_log_path):
 # 算力：5 实际算力开销：ctflops， 6 实际算力利用率：cfu， 7 实际算力开销-内核时间：ktflops， 8 实际算力利用率-内核时间：kfu
 """
 def get_result_data(log_file, res, spectflops, mode, warmup):
+    # 确保res是defaultdict，避免KeyError
+    if not isinstance(res, defaultdict):
+        res = defaultdict(dict)
     with open(log_file, 'r') as file_r:
         lines = file_r.readlines()
         for line in lines:
