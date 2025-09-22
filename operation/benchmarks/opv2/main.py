@@ -85,30 +85,33 @@ def main(config):
         print("=== Starting correctness test ===")
         print(f"FLAGGEMS_WORK_DIR environment: {os.environ.get('FLAGGEMS_WORK_DIR', 'NOT_SET')}")
         
-        # 构建算子专用的日志目录，与container_main.py中的目录结构保持一致
+        # 找到container_main.py已经创建的目录，而不是创建新目录
         # container_main.py第102行：logfile = os.path.join(config.log_dir, config.case_name, config.host_addr + "_noderank" + str(config.node_rank), "container_main.log.txt")
-        # 注意：container_main.py传递给main.py的case_name是算子名（如"mm"），但目录名是完整名称
-        # 需要重新构造完整的算子名称，使其与container_main.py中的目录结构完全一致
+        # 注意：container_main.py中的config.case_name是完整名称，config.host_addr可能是"localhost"
         
-        # 重新构造完整的算子名称（保持与container_main.py完全一致）
+        # 重新构造完整的算子名称
         full_case_name = f"opv2:{config.case_name}:{config.dataformat}:{config.spectflops}:{config.oplib}:{config.chip}"
+        algorithm_dir = os.path.join(config.log_dir, full_case_name)
         
-        # 使用与container_main.py相同的hostname获取方式
-        # container_main.py使用config.host_addr，我们这里用socket.gethostname()应该能得到相同结果
-        import socket
-        hostname = socket.gethostname()
+        # 查找已存在的noderank目录（container_main.py已经创建的）
+        case_log_dir = None
+        if os.path.exists(algorithm_dir):
+            print(f"Searching for existing noderank directory in: {algorithm_dir}")
+            for item in os.listdir(algorithm_dir):
+                item_path = os.path.join(algorithm_dir, item)
+                if os.path.isdir(item_path) and "noderank0" in item:
+                    case_log_dir = item_path
+                    print(f"Found existing noderank directory: {case_log_dir}")
+                    break
         
-        # 构建与container_main.py完全一致的目录路径
-        case_log_dir = os.path.join(config.log_dir, full_case_name, f"{hostname}_noderank0")
-        
-        # 检查目录是否已存在（container_main.py可能已经创建了）
-        if os.path.exists(case_log_dir):
-            print(f"Using existing case log directory: {case_log_dir}")
-        else:
+        # 如果找不到现有目录，使用localhost作为默认（通常container_main.py使用localhost）
+        if case_log_dir is None:
+            case_log_dir = os.path.join(algorithm_dir, "localhost_noderank0")
             os.makedirs(case_log_dir, exist_ok=True)
-            print(f"Created case log directory: {case_log_dir}")
+            print(f"Created default case log directory: {case_log_dir}")
         
         print(f"Full case name: {full_case_name}")
+        print(f"Using case log directory: {case_log_dir}")
         print(f"Expected operation.log.txt location: {os.path.join(case_log_dir, 'operation.log.txt')}")
         
         correctness = do_correctness(config.case_name, case_log_dir)
