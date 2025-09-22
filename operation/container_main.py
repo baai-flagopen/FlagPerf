@@ -107,9 +107,12 @@ if __name__ == "__main__":
     logger.add(sys.stdout, level=config.log_level)
 
     logger.info(config)
-    write_pid_file(config.log_dir, "start_base_task.pid")
+    # 为每个测试用例创建独立的PID文件，避免冲突
+    safe_case_name_for_pid = config.case_name.replace(":", "_")  # 文件名不能包含冒号
+    pid_file_name = f"start_base_task_{safe_case_name_for_pid}.pid"
+    write_pid_file(config.log_dir, pid_file_name)
     logger.info("Success Writing PID file at " +
-                os.path.join(config.log_dir, "start_base_task.pid"))
+                os.path.join(config.log_dir, pid_file_name))
 
     test_file, op, dataformat, spectflops, oplib, chip = config.case_name.split(":")
 

@@ -309,6 +309,7 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
        containers, setup environments, start monitors, and clear caches.'''
 
     RUN_LOGGER.info("a) Stop old container(s) first.")
+    RUN_LOGGER.info(f"Stopping container with name: {container_name}")
     stop_container_in_cluster(dp_path, container_name, nnodes)
     RUN_LOGGER.info("b) Start container(s) in the cluster.")
 
@@ -625,8 +626,10 @@ def main():
             continue
 
         # Set command to start docker container in the cluster
+        # 为每个测试用例创建唯一的容器名，避免冲突
+        safe_case_name = case.replace(":", "-")  # 将冒号替换为横杠，避免Docker命名问题
         container_name = image_mgr.repository + "-" + image_mgr.tag \
-                         + "-container"
+                         + "-" + safe_case_name + "-container"
         if config.VENDOR == "iluvatar":
             container_name = container_name + "_device_" + str(config.DEVICE)
         # Set command to start train script in container in the cluster
@@ -644,6 +647,7 @@ def main():
                     + " --result_log_path " + result_log_path
 
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases. ===")
+        RUN_LOGGER.info(f"Container name for this testcase: {container_name}")
 
         RUN_LOGGER.info("-== Testcase " + case + " starts ==-")
         RUN_LOGGER.info("1) Prepare container environments in cluster...")
@@ -661,7 +665,11 @@ def main():
 
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
-        pid_file_path = os.path.join(log_dir_container, "start_base_task.pid")
+        # 为每个测试用例创建独立的PID文件，避免冲突
+        safe_case_name_for_pid = case.replace(":", "_")  # 文件名不能包含冒号
+        pid_file_name = f"start_base_task_{safe_case_name_for_pid}.pid"
+        pid_file_path = os.path.join(log_dir_container, pid_file_name)
+        RUN_LOGGER.info(f"Waiting for PID file: {pid_file_path}")
         wait_for_finish(dp_path, container_name, pid_file_path, nnodes)
 
         RUN_LOGGER.info("3) Training tasks end in the cluster...")
