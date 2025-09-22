@@ -294,6 +294,12 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
 
     RUN_LOGGER.info("a) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
+    
+    # 等待容器完全清理，避免"Container exists"错误
+    import time
+    RUN_LOGGER.info("Waiting for container cleanup...")
+    time.sleep(3)
+    
     RUN_LOGGER.info("b) Start container(s) in the cluster.")
 
     if custom_docker_cmd is not None:
