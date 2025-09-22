@@ -279,8 +279,8 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
     RUN_LOGGER.debug(
         "Run cmd to check whether the training tasks is running: " + check_cmd)
     
-    # 添加超时保护，最多等待30分钟（1800秒）
-    max_wait_time = 1800  # 30 minutes
+    # 添加超时保护，最多等待24小时（86400秒）
+    max_wait_time = 86400  # 24 hours
     wait_count = 0
     max_wait_count = max_wait_time // 10  # 每10秒检查一次
     
@@ -307,8 +307,8 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
         time.sleep(10)
         wait_count += 1
         
-        # 每1分钟输出一次等待状态，并检查容器状态
-        if wait_count % 6 == 0:
+        # 每10分钟输出一次等待状态，并检查容器状态
+        if wait_count % 60 == 0:
             RUN_LOGGER.info(f"Still waiting for processes to finish... ({wait_count * 10}s elapsed)")
             # 检查容器是否还在运行
             container_check_cmd = "docker ps --filter name=" + container_name + " --format '{{.Names}}'"
