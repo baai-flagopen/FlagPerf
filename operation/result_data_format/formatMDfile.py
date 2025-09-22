@@ -2,14 +2,14 @@ import os
 import re
 
 
-def render(extracted_values, readme_file_path, vendor, shm_size, chip):
+def render(extracted_values, readme_file_path, vendor, shm_size, chip, correctness_log_filename="correctness.log.txt"):
     json_data = []
     for key, value in extracted_values.items():
         json_data.append(value)
     dest_file_path = os.path.join(readme_file_path, "README.md")
     
-    # 直接使用parse_correctness_log从文件解析正确性结果
-    correctness_result = parse_correctness_log(readme_file_path)
+    # 使用指定的正确性日志文件名解析正确性结果
+    correctness_result = parse_correctness_log(readme_file_path, correctness_log_filename)
     
     # 生成Markdown内容
     markdown_content = create_markdown_content(json_data, vendor, shm_size, chip, correctness_result)
@@ -51,13 +51,15 @@ def create_markdown_content(data, vendor, shm_size, chip, correctness_result):
     return content
 
 
-def parse_correctness_log(result_path):
+def parse_correctness_log(result_path, correctness_log_filename="correctness.log.txt"):
     """
-    解析correctness.log.txt文件，提取pytest测试结果
+    解析正确性日志文件，提取pytest测试结果
+    支持merged_correctness.log.txt和传统的correctness.log.txt
     """
-    correctness_log_path = os.path.join(result_path, "correctness.log.txt")
+    correctness_log_path = os.path.join(result_path, correctness_log_filename)
     
     if not os.path.exists(correctness_log_path):
+        print(f"Correctness log file not found: {correctness_log_path}")
         return None
     
     try:
@@ -74,6 +76,9 @@ def parse_correctness_log(result_path):
         
         lines = log_content.split('\n')
         
+        # 检查是否是合并的正确性日志
+        is_merged_log = correctness_log_filename == "merged_correctness.log.txt"
+        
         # 查找测试结果摘要行，如："========== 9 passed, 423 deselected, 12 warnings in 174.55s (0:02:54) =========="
         summary_pattern = r'=+ (.+) =+'
         test_pattern = r'(.+::test_accuracy_\w+\[.*?\])\s+(PASSED|FAILED|ERROR)\s+\[\s*\d+%\]'
@@ -81,16 +86,29 @@ def parse_correctness_log(result_path):
         passed_count = 0
         failed_count = 0
         error_count = 0
+        current_case = "unknown"  # 用于跟踪当前处理的case（仅在合并日志中使用）
         
         for line in lines:
             line = line.strip()
+            
+            # 如果是合并日志，检查CASE标记
+            if is_merged_log and line.startswith("CASE: "):
+                current_case = line.replace("CASE: ", "").strip()
+                continue
             
             # 提取各个测试项的结果
             test_match = re.search(test_pattern, line)
             if test_match:
                 test_name = test_match.group(1).split("::")[-1]  # 只取测试函数名部分
                 test_result = test_match.group(2)
-                result['test_results'][test_name] = test_result
+                
+                # 如果是合并日志，在测试名前加上case前缀
+                if is_merged_log and current_case != "unknown":
+                    test_key = f"{current_case}::{test_name}"
+                else:
+                    test_key = test_name
+                
+                result['test_results'][test_key] = test_result
                 
                 if test_result == "PASSED":
                     passed_count += 1

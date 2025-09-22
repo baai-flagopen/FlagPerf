@@ -15,45 +15,43 @@ def parse_log_file(spectflops, mode, warmup, log_dir, result_log_path):
     correctness_log_file = os.path.join(log_dir, "correctness.log.txt")
     save_log_path = os.path.join(result_log_path, "result.json")
     
-    # 统一处理逻辑，避免重复代码
-    def process_and_save_data():
-        res = defaultdict(dict)
-        # 处理性能测试日志
-        result_data = get_result_data(performance_log_file, res, spectflops, mode, warmup)
-        # 处理正确性测试日志
-        result_data = get_correctness_data(correctness_log_file, result_data)
-        return result_data
-    
+    # 处理性能测试日志（合并而不是覆盖）
     if os.path.isfile(save_log_path):
         with open(save_log_path, 'r+', encoding='utf-8') as file_r:
             try:
                 file_r_json = file_r.read()
                 if file_r_json.strip():  # 检查文件内容不为空
-                    res = json.loads(file_r_json)
+                    existing_data = json.loads(file_r_json)
                 else:
                     print("JSON file is empty, initializing new data")
-                    res = defaultdict(dict)
+                    existing_data = {}
                 
-                # 处理性能测试日志
-                result_data = get_result_data(performance_log_file, res, spectflops, mode, warmup)
-                # 处理正确性测试日志
-                result_data = get_correctness_data(correctness_log_file, result_data)
+                # 处理当前算子的性能测试日志（保持原有逻辑兼容性）
+                # 将现有数据传入get_result_data，让它在现有基础上添加新数据
+                result_data = get_result_data(performance_log_file, existing_data, spectflops, mode, warmup)
+                
+                # 注意：暂时不在这里处理正确性数据，留给后续的合并函数处理
+                # 这样避免了正确性数据被覆盖的问题
                 
                 file_r.seek(0)
-                file_r.write(json.dumps(result_data, ensure_ascii=False))
+                file_r.write(json.dumps(result_data, ensure_ascii=False, indent=2))
                 file_r.truncate()
                 
             except json.decoder.JSONDecodeError as e:
                 print(f"JSONDecodeError: {e}, reinitializing data")
                 # JSON解析失败时，重新处理数据
-                result_data = process_and_save_data()
+                new_data = get_result_data(performance_log_file, {}, spectflops, mode, warmup)
                 file_r.seek(0)
-                file_r.write(json.dumps(result_data, ensure_ascii=False))
+                file_r.write(json.dumps(new_data, ensure_ascii=False, indent=2))
                 file_r.truncate()
     else:
+        # 首次创建文件，只包含性能数据
+        performance_data = get_result_data(performance_log_file, {}, spectflops, mode, warmup)
         with open(save_log_path, 'w') as file_w:
-            result_data = process_and_save_data()
-            file_w.write(json.dumps(result_data, ensure_ascii=False))
+            file_w.write(json.dumps(performance_data, ensure_ascii=False, indent=2))
+    
+    print(f"Performance data saved to: {save_log_path}")
+    print(f"Correctness log available at: {correctness_log_file}")
 
 
 """ 参数说明
@@ -395,3 +393,108 @@ def parse_pytest_text_output(log_content):
             correctness_info[op_name]["test_summary"] = summary_info
     
     return correctness_info
+
+
+def merge_correctness_logs_from_subdirs(timestamp_dir):
+    """
+    合并时间戳目录下所有算子子目录的正确性日志
+    生成合并的正确性日志文件和更新的result.json
+    """
+    print(f"=== Starting correctness logs merge from: {timestamp_dir} ===")
+    
+    merged_correctness = {}
+    merged_log_content = []
+    processed_cases = []
+    
+    # 遍历所有算子子目录
+    for item in os.listdir(timestamp_dir):
+        item_path = os.path.join(timestamp_dir, item)
+        if not os.path.isdir(item_path) or not item.startswith("opv2:"):
+            continue
+            
+        print(f"Processing case directory: {item}")
+        
+        # 查找算子子目录中的正确性日志
+        case_correctness_found = False
+        for subdir in os.listdir(item_path):
+            subdir_path = os.path.join(item_path, subdir)
+            if not os.path.isdir(subdir_path):
+                continue
+                
+            correctness_file = os.path.join(subdir_path, "correctness.log.txt")
+            
+            if os.path.exists(correctness_file) and os.path.getsize(correctness_file) > 0:
+                print(f"  Found correctness log: {correctness_file}")
+                case_correctness_found = True
+                
+                try:
+                    with open(correctness_file, 'r', encoding='utf-8') as f:
+                        log_content = f.read()
+                    
+                    # 解析正确性信息
+                    correctness_info = parse_pytest_json_output(log_content)
+                    if not correctness_info:
+                        correctness_info = parse_pytest_text_output(log_content)
+                    
+                    # 合并到总的正确性数据中
+                    for test_key, test_data in correctness_info.items():
+                        # 为测试键添加case前缀，避免重复
+                        merged_key = f"{item}::{test_key}"
+                        merged_correctness[merged_key] = test_data
+                    
+                    # 添加日志内容（用于生成合并的日志文件）
+                    merged_log_content.append(f"\n{'='*60}\n")
+                    merged_log_content.append(f"CASE: {item}\n")
+                    merged_log_content.append(f"SOURCE: {correctness_file}\n")
+                    merged_log_content.append(f"{'='*60}\n")
+                    merged_log_content.append(log_content)
+                    merged_log_content.append(f"\n{'='*60}\n")
+                    
+                    processed_cases.append(item)
+                    print(f"  Successfully processed correctness data for {item}")
+                    
+                except Exception as e:
+                    print(f"  Error processing {correctness_file}: {e}")
+        
+        if not case_correctness_found:
+            print(f"  No correctness log found for case: {item}")
+    
+    # 生成合并的正确性日志文件
+    merged_log_path = os.path.join(timestamp_dir, "merged_correctness.log.txt")
+    try:
+        with open(merged_log_path, 'w', encoding='utf-8') as f:
+            f.write(f"MERGED CORRECTNESS LOG\n")
+            f.write(f"Generated from {len(processed_cases)} cases: {', '.join(processed_cases)}\n")
+            f.write(f"Timestamp: {timestamp_dir.split('/')[-1]}\n")
+            f.write("".join(merged_log_content))
+        print(f"Merged correctness log saved to: {merged_log_path}")
+    except Exception as e:
+        print(f"Error creating merged correctness log: {e}")
+        merged_log_path = None
+    
+    print(f"=== Correctness merge completed. Processed {len(processed_cases)} cases ===")
+    return merged_correctness, merged_log_path, processed_cases
+
+
+def finalize_correctness_logs_only(timestamp_dir):
+    """
+    只合并正确性日志文件，不修改result.json
+    result.json只包含性能数据，正确性数据由MD格式化脚本单独处理
+    """
+    print(f"=== Merging correctness logs from: {timestamp_dir} ===")
+    
+    # 只合并正确性日志，不处理result.json
+    merged_correctness, merged_log_path, processed_cases = merge_correctness_logs_from_subdirs(timestamp_dir)
+    
+    # 创建汇总信息
+    summary = {
+        "timestamp_dir": timestamp_dir,
+        "processed_cases": processed_cases,
+        "merged_log_path": merged_log_path,
+        "total_correctness_entries": len(merged_correctness)
+    }
+    
+    print(f"=== Correctness logs merge completed ===")
+    print(f"Processed {len(processed_cases)} cases")
+    print(f"Generated merged log: {merged_log_path}")
+    return summary

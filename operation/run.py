@@ -658,13 +658,33 @@ def main():
     RUN_LOGGER.info("1) merge logs from all nodes to master")
     collect_and_merge_logs(os.path.join(dp_path, curr_log_path), cases, nnodes)
 
-    RUN_LOGGER.info("2) summary logs")
+    RUN_LOGGER.info("2) merge correctness results from all operations")
+    # 合并所有算子的正确性测试结果
+    try:
+        # 调用合并脚本
+        merge_script = os.path.join(dp_path, "benchmarks", "drivers", "merge_results.py")
+        timestamp_dir_abs = os.path.join(dp_path, curr_log_path)
+        merge_cmd = f"{sys.executable} {merge_script} --timestamp_dir {timestamp_dir_abs}"
+        RUN_LOGGER.info(f"Running merge command: {merge_cmd}")
+        
+        import subprocess
+        result = subprocess.run(merge_cmd, shell=True, capture_output=True, text=True)
+        if result.returncode == 0:
+            RUN_LOGGER.info("Correctness results merged successfully")
+            RUN_LOGGER.debug(f"Merge output: {result.stdout}")
+        else:
+            RUN_LOGGER.warning(f"Correctness merge failed with code {result.returncode}")
+            RUN_LOGGER.warning(f"Merge error: {result.stderr}")
+    except Exception as e:
+        RUN_LOGGER.error(f"Error during correctness merge: {e}")
+
+    RUN_LOGGER.info("3) summary logs")
     key_logs = summary_logs(config, case_log_dir)
     RUN_LOGGER.debug(key_logs)
     jsonfile = os.path.join(dp_path, curr_log_path, "detail_result.json")
     json.dump(key_logs, open(jsonfile, "w"))
 
-    RUN_LOGGER.info("3) analysis logs")
+    RUN_LOGGER.info("4) analysis logs")
     analysis_log(key_logs)
 
 

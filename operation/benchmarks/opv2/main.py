@@ -68,6 +68,16 @@ def parse_args():
                         required=True,
                         help="result log path for FlagPerf/operation/result")
 
+    parser.add_argument("--host_addr",
+                        type=str,
+                        required=True,
+                        help="host address")
+
+    parser.add_argument("--node_rank",
+                        type=int,
+                        required=True,
+                        help="node rank")
+
     args, unknown_args = parser.parse_known_args()
     args.unknown_args = unknown_args
     return args
@@ -84,7 +94,26 @@ def main(config):
     try:
         print("=== Starting correctness test ===")
         print(f"FLAGGEMS_WORK_DIR environment: {os.environ.get('FLAGGEMS_WORK_DIR', 'NOT_SET')}")
-        correctness = do_correctness(config.case_name, config.log_dir)
+        
+        # 构建算子子目录路径，用于保存正确性日志
+        # 格式：log_dir/case_name/host_addr_noderankN/
+        # 需要从原始case_name重新构建完整的case名称
+        test_file, op, dataformat, spectflops, oplib, chip = "opv2", config.case_name, config.dataformat, config.spectflops, config.oplib, config.chip
+        full_case_name = f"{test_file}:{op}:{dataformat}:{spectflops}:{oplib}:{chip}"
+        
+        # 构建正确性日志的保存目录
+        correctness_log_dir = os.path.join(
+            config.log_dir, 
+            full_case_name,
+            f"{config.host_addr}_noderank{config.node_rank}"
+        )
+        
+        print(f"Correctness log will be saved to: {correctness_log_dir}")
+        
+        # 确保目录存在
+        os.makedirs(correctness_log_dir, exist_ok=True)
+        
+        correctness = do_correctness(config.case_name, correctness_log_dir)
         print(f"do_correctness returned: {correctness}")
         correctness = correctness == 0
         print(f"Correctness result: {correctness}")
@@ -107,6 +136,8 @@ def main(config):
         print(f"Calling parse_log_file with spectflops={config.spectflops}, mode={config.mode}, warmup={config.warmup}")
         parse_log_file(config.spectflops, config.mode, config.warmup, config.log_dir, config.result_log_path)
         print("=== Log parsing completed ===")
+        
+        print("=== Note: Correctness data will be merged later by finalize_results_with_correctness ===")
         print("=== Main function completed successfully ===")
         
     except Exception as e:
