@@ -87,11 +87,29 @@ def main(config):
         
         # 构建算子专用的日志目录，与container_main.py中的目录结构保持一致
         # container_main.py第102行：logfile = os.path.join(config.log_dir, config.case_name, config.host_addr + "_noderank" + str(config.node_rank), "container_main.log.txt")
+        # 注意：container_main.py传递给main.py的case_name是算子名（如"mm"），但目录名是完整名称
+        # 需要重新构造完整的算子名称，使其与container_main.py中的目录结构完全一致
+        
+        # 重新构造完整的算子名称（保持与container_main.py完全一致）
+        full_case_name = f"opv2:{config.case_name}:{config.dataformat}:{config.spectflops}:{config.oplib}:{config.chip}"
+        
+        # 使用与container_main.py相同的hostname获取方式
+        # container_main.py使用config.host_addr，我们这里用socket.gethostname()应该能得到相同结果
         import socket
         hostname = socket.gethostname()
-        case_log_dir = os.path.join(config.log_dir, config.case_name, f"{hostname}_noderank0")
-        os.makedirs(case_log_dir, exist_ok=True)
-        print(f"Using case log directory: {case_log_dir}")
+        
+        # 构建与container_main.py完全一致的目录路径
+        case_log_dir = os.path.join(config.log_dir, full_case_name, f"{hostname}_noderank0")
+        
+        # 检查目录是否已存在（container_main.py可能已经创建了）
+        if os.path.exists(case_log_dir):
+            print(f"Using existing case log directory: {case_log_dir}")
+        else:
+            os.makedirs(case_log_dir, exist_ok=True)
+            print(f"Created case log directory: {case_log_dir}")
+        
+        print(f"Full case name: {full_case_name}")
+        print(f"Expected operation.log.txt location: {os.path.join(case_log_dir, 'operation.log.txt')}")
         
         correctness = do_correctness(config.case_name, case_log_dir)
         print(f"do_correctness returned: {correctness}")

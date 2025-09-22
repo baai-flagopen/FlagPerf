@@ -179,25 +179,29 @@ def find_all_correctness_logs(valid_dirs):
         if os.path.exists(timestamp_dir):
             for item in os.listdir(timestamp_dir):
                 item_path = os.path.join(timestamp_dir, item)
-                if os.path.isdir(item_path):
+                # 检查是否为算子目录（包含冒号的目录名）
+                if os.path.isdir(item_path) and ":" in item:
                     # 检查这个目录下是否有host_noderank*子目录
-                    for subitem in os.listdir(item_path):
-                        subitem_path = os.path.join(item_path, subitem)
-                        if os.path.isdir(subitem_path) and "noderank" in subitem:
-                            # 检查是否有correctness.log.txt
-                            correctness_log_path = os.path.join(subitem_path, "correctness.log.txt")
-                            if os.path.exists(correctness_log_path):
-                                try:
-                                    # 检查文件是否为空
-                                    with open(correctness_log_path, 'r', encoding='utf-8') as f:
-                                        content = f.read().strip()
-                                        if content:  # 文件不为空
-                                            all_correctness_logs.append(correctness_log_path)
-                                            print(f"  Found valid correctness.log.txt: {correctness_log_path}")
-                                        else:
-                                            print(f"  Skipping empty correctness.log.txt: {correctness_log_path}")
-                                except Exception as e:
-                                    print(f"  Error reading correctness.log.txt {correctness_log_path}: {e}")
+                    try:
+                        for subitem in os.listdir(item_path):
+                            subitem_path = os.path.join(item_path, subitem)
+                            if os.path.isdir(subitem_path) and "noderank" in subitem:
+                                # 检查是否有correctness.log.txt
+                                correctness_log_path = os.path.join(subitem_path, "correctness.log.txt")
+                                if os.path.exists(correctness_log_path):
+                                    try:
+                                        # 检查文件是否为空
+                                        with open(correctness_log_path, 'r', encoding='utf-8') as f:
+                                            content = f.read().strip()
+                                            if content:  # 文件不为空
+                                                all_correctness_logs.append(correctness_log_path)
+                                                print(f"  Found valid correctness.log.txt: {correctness_log_path}")
+                                            else:
+                                                print(f"  Skipping empty correctness.log.txt: {correctness_log_path}")
+                                    except Exception as e:
+                                        print(f"  Error reading correctness.log.txt {correctness_log_path}: {e}")
+                    except Exception as e:
+                        print(f"  Error scanning algorithm directory {item_path}: {e}")
     
     if not all_correctness_logs:
         print("Warning: No valid correctness.log.txt files found in any algorithm directories")
