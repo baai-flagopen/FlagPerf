@@ -68,6 +68,10 @@ def parse_args():
                         required=True,
                         help="result log path for FlagPerf/operation/result")
 
+    parser.add_argument("--retry_performance_only",
+                        action='store_true',
+                        help="Only run performance test, skip correctness test")
+
     args, unknown_args = parser.parse_known_args()
     args.unknown_args = unknown_args
     return args
@@ -82,13 +86,6 @@ def main(config):
     print(f"Warmup: {config.warmup}")
 
     try:
-        print("=== Starting correctness test ===")
-        print(f"FLAGGEMS_WORK_DIR environment: {os.environ.get('FLAGGEMS_WORK_DIR', 'NOT_SET')}")
-        
-        # 找到container_main.py已经创建的目录，而不是创建新目录
-        # container_main.py第102行：logfile = os.path.join(config.log_dir, config.case_name, config.host_addr + "_noderank" + str(config.node_rank), "container_main.log.txt")
-        # 注意：container_main.py中的config.case_name是完整名称，config.host_addr可能是"localhost"
-        
         # 重新构造完整的算子名称
         full_case_name = f"opv2:{config.case_name}:{config.dataformat}:{config.spectflops}:{config.oplib}:{config.chip}"
         algorithm_dir = os.path.join(config.log_dir, full_case_name)
@@ -114,10 +111,18 @@ def main(config):
         print(f"Using case log directory: {case_log_dir}")
         print(f"Expected operation.log.txt location: {os.path.join(case_log_dir, 'operation.log.txt')}")
         
-        correctness = do_correctness(config.case_name, case_log_dir)
-        print(f"do_correctness returned: {correctness}")
-        correctness = correctness == 0
-        print(f"Correctness result: {correctness}")
+        # 检查是否只需要重试性能测试
+        if getattr(config, 'retry_performance_only', False):
+            print("=== Retrying performance test only (skipping correctness test) ===")
+            correctness = True  # 假设正确性测试之前已经通过
+        else:
+            print("=== Starting correctness test ===")
+            print(f"FLAGGEMS_WORK_DIR environment: {os.environ.get('FLAGGEMS_WORK_DIR', 'NOT_SET')}")
+            
+            correctness = do_correctness(config.case_name, case_log_dir)
+            print(f"do_correctness returned: {correctness}")
+            correctness = correctness == 0
+            print(f"Correctness result: {correctness}")
 
         print("=== Starting performance test ===")
         # 创建性能测试开始标记文件

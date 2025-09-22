@@ -128,6 +128,11 @@ if __name__ == "__main__":
     start_cmd += " --warmup=" + config.warmup
     start_cmd += " --log_dir=" + config.log_dir
     start_cmd += " --result_log_path=" + config.result_log_path
+    
+    # 传递未知参数给main.py
+    if hasattr(config, 'unknown_args') and config.unknown_args:
+        for arg in config.unknown_args:
+            start_cmd += " " + arg
 
     script_log_file = os.path.join(os.path.dirname(logfile),
                                    "operation.log.txt")
