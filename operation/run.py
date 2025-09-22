@@ -263,7 +263,7 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
     CLUSTER_MGR.run_command_some_hosts_distribution_info(
-        start_cmd, nnodes, 15, "base")
+        start_cmd, nnodes, 180, "base")
     # Wait a moment for starting tasks.
     time.sleep(60)
 
@@ -278,13 +278,29 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
 
     RUN_LOGGER.debug(
         "Run cmd to check whether the training tasks is running: " + check_cmd)
-    while True:
+    
+    # 添加超时保护，最多等待30分钟（1800秒）
+    max_wait_time = 1800  # 30 minutes
+    wait_count = 0
+    max_wait_count = max_wait_time // 10  # 每10秒检查一次
+    
+    while wait_count < max_wait_count:
         bad_hosts = CLUSTER_MGR.run_command_some_hosts(check_cmd,
                                                        nnodes,
                                                        no_log=True)
         if len(bad_hosts) == nnodes:
+            RUN_LOGGER.info("All processes finished successfully")
             break
         time.sleep(10)
+        wait_count += 1
+        
+        # 每5分钟输出一次等待状态
+        if wait_count % 30 == 0:
+            RUN_LOGGER.info(f"Still waiting for processes to finish... ({wait_count * 10}s elapsed)")
+    
+    if wait_count >= max_wait_count:
+        RUN_LOGGER.error(f"Timeout waiting for processes to finish after {max_wait_time}s")
+        RUN_LOGGER.error("This may indicate a stuck process or configuration issue")
 
 
 def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
