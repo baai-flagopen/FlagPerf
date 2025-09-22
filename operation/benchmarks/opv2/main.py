@@ -120,10 +120,22 @@ def main(config):
         print(f"Correctness result: {correctness}")
 
         print("=== Starting performance test ===")
+        # 创建性能测试开始标记文件
+        perf_start_marker = os.path.join(case_log_dir, "performance_started.marker")
+        with open(perf_start_marker, 'w') as f:
+            f.write(f"Performance test started at {time.time()}\n")
+        print(f"Created performance start marker: {perf_start_marker}")
+        
         # test operation performance
         print(f"Calling do_performance with mode={config.mode}, warmup={config.warmup}, log_dir={case_log_dir}")
         performance = do_performance(config.mode, config.warmup, case_log_dir)
         print(f"do_performance returned: {performance}")
+        
+        # 创建性能测试完成标记文件
+        perf_end_marker = os.path.join(case_log_dir, "performance_completed.marker")
+        with open(perf_end_marker, 'w') as f:
+            f.write(f"Performance test completed at {time.time()}\n")
+        print(f"Created performance end marker: {perf_end_marker}")
 
         # Check if performance is a tuple (success case) or single value (error case)
         if isinstance(performance, tuple):

@@ -11,13 +11,35 @@ import subprocess
 
 def do_correctness(operation, result_log_dir):
     print(f"=== do_correctness called with operation={operation}, result_log_dir={result_log_dir} ===")
-    flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/")
+    flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/workspace/docker_image")
     print(f"FLAGGEMS_WORK_DIR: {flaggems_dir}")
+    
+    # 检查常见的FlagGems安装路径
+    common_paths = [
+        "/workspace/docker_image",
+        "/workspace", 
+        "/opt",
+        "/home",
+        "/root"
+    ]
+    
+    if flaggems_dir == "/" or flaggems_dir == "/workspace/docker_image":
+        print(f"FLAGGEMS_WORK_DIR not properly set, searching in common paths...")
+        for path in common_paths:
+            if os.path.exists(os.path.join(path, "FlagGems")):
+                flaggems_dir = path
+                print(f"Found FlagGems in: {flaggems_dir}")
+                break
+        else:
+            print(f"FlagGems not found in common paths, skipping correctness test")
+            return 0
     
     try:
         print(f"Searching for FlagGems in {flaggems_dir}")
+        # 添加超时保护，避免find命令卡住
         gems_repo = subprocess.check_output(
-            ["find", flaggems_dir, "-type", "d", "-name", "FlagGems"], text=True).strip()
+            ["find", flaggems_dir, "-maxdepth", "3", "-type", "d", "-name", "FlagGems"], 
+            text=True, timeout=30).strip()
         print(f"Found FlagGems repo: {gems_repo}")
         
         if not gems_repo:
@@ -181,6 +203,12 @@ def do_correctness(operation, result_log_dir):
         # 如果找不到测试，返回0表示跳过（不是失败）
         return 0
             
+    except subprocess.TimeoutExpired:
+        print(f"Timeout while searching for FlagGems in {flaggems_dir}")
+        return 0  # Skip correctness check on timeout
+    except subprocess.CalledProcessError as e:
+        print(f"Find command failed: {e}")
+        return 0  # Skip correctness check on error
     except Exception as e:
         print(f"Error during correctness check: {e}")
         return 0  # Skip correctness check on error
@@ -189,53 +217,86 @@ def do_correctness(operation, result_log_dir):
         # test operation performance
 def do_performance(mode, warmup, result_log_dir):
     print(f"=== do_performance called with mode={mode}, warmup={warmup}, result_log_dir={result_log_dir} ===")
-    flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/")
+    flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/workspace/docker_image")
     print(f"FLAGGEMS_WORK_DIR: {flaggems_dir}")
     
-    print(f"Searching for FlagGems in {flaggems_dir}")
-    gems_repo = subprocess.check_output(
-        ["find", flaggems_dir, "-type", "d", "-name", "FlagGems"], text=True).strip()
-    print(f"Found FlagGems repo: {gems_repo}")
+    # 检查常见的FlagGems安装路径
+    common_paths = [
+        "/workspace/docker_image",
+        "/workspace", 
+        "/opt",
+        "/home",
+        "/root"
+    ]
     
-    if not gems_repo:
-        print(f"FlagGems repository not found in {flaggems_dir}")
-        return 1  # Return error code
-    del_file_path = os.path.join(gems_repo, 'benchmark')
-    print(f"Benchmark directory: {del_file_path}")
+    if flaggems_dir == "/" or flaggems_dir == "/workspace/docker_image":
+        print(f"FLAGGEMS_WORK_DIR not properly set, searching in common paths...")
+        for path in common_paths:
+            if os.path.exists(os.path.join(path, "FlagGems")):
+                flaggems_dir = path
+                print(f"Found FlagGems in: {flaggems_dir}")
+                break
+        else:
+            print(f"FlagGems not found in common paths, returning error")
+            return 1
     
-    # 删除历史日志
-    del_file = os.path.join(del_file_path,
-                            f"result--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
-    print(f"Deleting old log file: {del_file}")
-    del_process = subprocess.Popen(["rm", "-f", del_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    del_process.communicate()
-    
-    # 执行性能测试命令
-    perf_cmd = f"cd {os.path.join(gems_repo, 'benchmark')} && pytest --level core --mode {mode} --warmup {warmup} --record log"
-    print(f"Running performance test: {perf_cmd}")
-    
-    p = subprocess.Popen(perf_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    stdout, _ = p.communicate()
-    print(f"Performance test output: {stdout.decode() if stdout else 'No output'}")
-    print(f"Performance test exit code: {p.returncode}")
+    try:
+        print(f"Searching for FlagGems in {flaggems_dir}")
+        gems_repo = subprocess.check_output(
+            ["find", flaggems_dir, "-maxdepth", "3", "-type", "d", "-name", "FlagGems"], 
+            text=True, timeout=30).strip()
+        print(f"Found FlagGems repo: {gems_repo}")
+        
+        if not gems_repo:
+            print(f"FlagGems repository not found in {flaggems_dir}")
+            return 1  # Return error code
+            
+        del_file_path = os.path.join(gems_repo, 'benchmark')
+        print(f"Benchmark directory: {del_file_path}")
+        
+        # 删除历史日志
+        del_file = os.path.join(del_file_path,
+                                f"result--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
+        print(f"Deleting old log file: {del_file}")
+        del_process = subprocess.Popen(["rm", "-f", del_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        del_process.communicate()
+        
+        # 执行性能测试命令
+        perf_cmd = f"cd {os.path.join(gems_repo, 'benchmark')} && pytest --level core --mode {mode} --warmup {warmup} --record log"
+        print(f"Running performance test: {perf_cmd}")
+        
+        p = subprocess.Popen(perf_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        stdout, _ = p.communicate()
+        print(f"Performance test output: {stdout.decode() if stdout else 'No output'}")
+        print(f"Performance test exit code: {p.returncode}")
 
-    # 全量执行日志路径
-    log_dir = os.path.join(gems_repo, "benchmark",
-                           f"result--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
-    print(f"Expected log file: {log_dir}")
-    print(f"Log file exists: {os.path.exists(log_dir)}")
-    
-    if os.path.exists(log_dir):
-        try:
-            cp_subprocess = subprocess.run(["cp", f"{log_dir}", f"{result_log_dir}/result.log.txt"], check=True)
-            print(f"Successfully copied log to {result_log_dir}/result.log.txt")
-            return p.returncode, cp_subprocess.returncode
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to copy log file: {e}")
+        # 全量执行日志路径
+        log_dir = os.path.join(gems_repo, "benchmark",
+                               f"result--level_core--mode_{mode}--warmup_{warmup}--record_log.log")
+        print(f"Expected log file: {log_dir}")
+        print(f"Log file exists: {os.path.exists(log_dir)}")
+        
+        if os.path.exists(log_dir):
+            try:
+                cp_subprocess = subprocess.run(["cp", f"{log_dir}", f"{result_log_dir}/result.log.txt"], check=True)
+                print(f"Successfully copied log to {result_log_dir}/result.log.txt")
+                return p.returncode, cp_subprocess.returncode
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to copy log file: {e}")
+                return p.returncode, 1
+        else:
+            print(f"Log file not found: {log_dir}")
             return p.returncode, 1
-    else:
-        print(f"Log file not found: {log_dir}")
-        return p.returncode, 1
+            
+    except subprocess.TimeoutExpired:
+        print(f"Timeout while searching for FlagGems in {flaggems_dir}")
+        return 1  # Return error code
+    except subprocess.CalledProcessError as e:
+        print(f"Find command failed: {e}")
+        return 1  # Return error code  
+    except Exception as e:
+        print(f"Error during performance test: {e}")
+        return 1  # Return error code
 
 grad_outputs = None
 

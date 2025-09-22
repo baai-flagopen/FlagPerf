@@ -289,14 +289,34 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
                                                        nnodes,
                                                        no_log=True)
         if len(bad_hosts) == nnodes:
-            RUN_LOGGER.info("All processes finished successfully")
-            break
+            # 进程结束了，但检查是否真的完成了所有测试阶段
+            case_log_dir = os.path.dirname(pid_file_path)
+            perf_completed_marker = os.path.join(case_log_dir, "performance_completed.marker")
+            
+            if os.path.exists(perf_completed_marker):
+                RUN_LOGGER.info("All processes finished successfully with performance test completed")
+                break
+            else:
+                RUN_LOGGER.warning("Process ended but performance test may not have completed")
+                perf_started_marker = os.path.join(case_log_dir, "performance_started.marker")
+                if os.path.exists(perf_started_marker):
+                    RUN_LOGGER.warning("Performance test started but did not complete - possible interruption")
+                else:
+                    RUN_LOGGER.warning("Performance test never started - possible early termination")
+                break
         time.sleep(10)
         wait_count += 1
         
-        # 每5分钟输出一次等待状态
-        if wait_count % 30 == 0:
+        # 每1分钟输出一次等待状态，并检查容器状态
+        if wait_count % 6 == 0:
             RUN_LOGGER.info(f"Still waiting for processes to finish... ({wait_count * 10}s elapsed)")
+            # 检查容器是否还在运行
+            container_check_cmd = "docker ps --filter name=" + container_name + " --format '{{.Names}}'"
+            container_status = CLUSTER_MGR.run_command_some_hosts(container_check_cmd, nnodes, no_log=True)
+            if len(container_status) == nnodes:
+                RUN_LOGGER.warning(f"Container {container_name} may have stopped unexpectedly")
+            else:
+                RUN_LOGGER.info(f"Container {container_name} is still running")
     
     if wait_count >= max_wait_count:
         RUN_LOGGER.error(f"Timeout waiting for processes to finish after {max_wait_time}s")
