@@ -2,15 +2,15 @@ import os
 import re
 
 
-def render(extracted_values, readme_file_path, vendor, shm_size, chip, correctness_log_filename="correctness.log.txt"):
+def render(extracted_values, readme_file_path, vendor, shm_size, chip):
     json_data = []
     for key, value in extracted_values.items():
         json_data.append(value)
     dest_file_path = os.path.join(readme_file_path, "README.md")
-    
-    # 使用指定的正确性日志文件名解析正确性结果
-    correctness_result = parse_correctness_log(readme_file_path, correctness_log_filename)
-    
+
+    # 直接使用parse_correctness_log从文件解析正确性结果
+    correctness_result = parse_correctness_log(readme_file_path)
+
     # 生成Markdown内容
     markdown_content = create_markdown_content(json_data, vendor, shm_size, chip, correctness_result)
     with open(dest_file_path, 'w') as file:
@@ -23,13 +23,13 @@ def create_markdown_content(data, vendor, shm_size, chip, correctness_result):
     """
     v_chip = f'{vendor}_{chip}'
     content = f"# 参评AI芯片信息\n\n * 厂商：{vendor}\n * 产品名称：{v_chip}\n * 产品型号：{chip}\n * SHM_SIZE：{shm_size}\n\n"
-    
+
     # 添加正确性测试结果章节
     content += "# 正确性测试结果\n\n"
     if correctness_result:
         content += f"**测试状态**: {correctness_result['status']}\n\n"
         content += f"**总体结果**: {correctness_result['summary']}\n\n"
-        
+
         if correctness_result.get('test_results'):
             content += "**各测试项结果**:\n\n"
             for test_name, result in correctness_result['test_results'].items():
@@ -39,33 +39,31 @@ def create_markdown_content(data, vendor, shm_size, chip, correctness_result):
     else:
         content += "**测试状态**: ➖ 未进行正确性测试\n\n"
         content += "**说明**: 未找到正确性测试日志文件\n\n"
-    
+
     # 添加性能测试结果表格
     content += "# 评测结果\n\n"
     content += "| op_name | dtype | shape_detail | 无预热时延(Latency-No warmup) | 预热时延(Latency-Warmup) | 原始吞吐(Raw-Throughput)| 核心吞吐(Core-Throughput) | 实际算力开销 | 实际算力利用率 | 实际算力开销(内核时间) | 实际算力利用率(内核时间) |\n"
     content += "| --- | ---| --- | ---| --- | ---| --- | ---| --- | ---| --- |\n"
-    
+
     for row in data:
         content += f"| {row.get('op_name', 'N/A')} | {row.get('dtype', 'N/A')} | {row.get('shape_detail', 'N/A')} | {row.get('no_warmup_latency', 'N/A')} | {row.get('warmup_latency', 'N/A')} | {row.get('raw_throughput', 'N/A')} | {row.get('core_throughput', 'N/A')} | {row.get('ctflops', 'N/A')} | {row.get('cfu', 'N/A')} | {row.get('ktflops', 'N/A')} | {row.get('kfu', 'N/A')} |\n"
-    
+
     return content
 
 
-def parse_correctness_log(result_path, correctness_log_filename="correctness.log.txt"):
+def parse_correctness_log(result_path):
     """
-    解析正确性日志文件，提取pytest测试结果
-    支持merged_correctness.log.txt和传统的correctness.log.txt
+    解析correctness.log.txt文件，提取pytest测试结果
     """
-    correctness_log_path = os.path.join(result_path, correctness_log_filename)
-    
+    correctness_log_path = os.path.join(result_path, "correctness.log.txt")
+
     if not os.path.exists(correctness_log_path):
-        print(f"Correctness log file not found: {correctness_log_path}")
         return None
-    
+
     try:
         with open(correctness_log_path, 'r', encoding='utf-8') as f:
             log_content = f.read()
-        
+
         # 解析pytest输出
         result = {
             'status': '❓ 未知',
@@ -73,42 +71,26 @@ def parse_correctness_log(result_path, correctness_log_filename="correctness.log
             'details': log_content.strip(),
             'test_results': {}
         }
-        
+
         lines = log_content.split('\n')
-        
-        # 检查是否是合并的正确性日志
-        is_merged_log = correctness_log_filename == "merged_correctness.log.txt"
-        
+
         # 查找测试结果摘要行，如："========== 9 passed, 423 deselected, 12 warnings in 174.55s (0:02:54) =========="
         summary_pattern = r'=+ (.+) =+'
         test_pattern = r'(.+::test_accuracy_\w+\[.*?\])\s+(PASSED|FAILED|ERROR)\s+\[\s*\d+%\]'
-        
+
         passed_count = 0
         failed_count = 0
         error_count = 0
-        current_case = "unknown"  # 用于跟踪当前处理的case（仅在合并日志中使用）
-        
+
         for line in lines:
             line = line.strip()
-            
-            # 如果是合并日志，检查CASE标记
-            if is_merged_log and line.startswith("CASE: "):
-                current_case = line.replace("CASE: ", "").strip()
-                continue
-            
+
             # 提取各个测试项的结果
             test_match = re.search(test_pattern, line)
             if test_match:
                 test_name = test_match.group(1).split("::")[-1]  # 只取测试函数名部分
                 test_result = test_match.group(2)
-                
-                # 如果是合并日志，在测试名前加上case前缀
-                if is_merged_log and current_case != "unknown":
-                    test_key = f"{current_case}::{test_name}"
-                else:
-                    test_key = test_name
-                
-                result['test_results'][test_key] = test_result
+                result['test_results'][test_name] = test_result
                 
                 if test_result == "PASSED":
                     passed_count += 1

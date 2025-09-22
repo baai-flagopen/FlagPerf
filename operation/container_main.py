@@ -125,8 +125,6 @@ if __name__ == "__main__":
     start_cmd += " --warmup=" + config.warmup
     start_cmd += " --log_dir=" + config.log_dir
     start_cmd += " --result_log_path=" + config.result_log_path
-    start_cmd += " --host_addr=" + config.host_addr
-    start_cmd += " --node_rank=" + str(config.node_rank)
 
     script_log_file = os.path.join(os.path.dirname(logfile),
                                    "operation.log.txt")
