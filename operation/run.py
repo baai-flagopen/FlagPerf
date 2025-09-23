@@ -282,7 +282,7 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
     RUN_LOGGER.debug(
         "Run cmd to check whether the training tasks is running: " + check_cmd)
     
-    # 添加超时保护，最多等待24小时（86400秒）
+    # 添加超时保护，最多等待24小时（86400秒），足够处理长时间的性能测试
     max_wait_time = 86400  # 24 hours
     wait_count = 0
     max_wait_count = max_wait_time // 10  # 每10秒检查一次
@@ -293,9 +293,24 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
                                                        no_log=True)
         if len(bad_hosts) == nnodes:
             # 进程结束了，但检查是否真的完成了所有测试阶段
-            case_log_dir = os.path.dirname(pid_file_path)
-            perf_completed_marker = os.path.join(case_log_dir, "performance_completed.marker")
-            perf_started_marker = os.path.join(case_log_dir, "performance_started.marker")
+            # 标记文件在 case_log_dir/localhost_noderank0/ 目录下
+            pid_dir = os.path.dirname(pid_file_path)
+            # 从PID文件路径推断case名称
+            pid_filename = os.path.basename(pid_file_path)
+            if pid_filename.startswith("start_base_task_"):
+                case_name_from_pid = pid_filename.replace("start_base_task_", "").replace(".pid", "").replace("_retry", "_retry").split("_retry")[0]
+                case_name_original = case_name_from_pid.replace("_", ":")
+                marker_case_dir = os.path.join(pid_dir, case_name_original, "localhost_noderank0")
+            else:
+                # 回退方案：在PID文件同级目录查找
+                marker_case_dir = pid_dir
+            
+            perf_completed_marker = os.path.join(marker_case_dir, "performance_completed.marker")
+            perf_started_marker = os.path.join(marker_case_dir, "performance_started.marker")
+            
+            RUN_LOGGER.debug(f"Checking markers in: {marker_case_dir}")
+            RUN_LOGGER.debug(f"Performance started marker: {perf_started_marker} (exists: {os.path.exists(perf_started_marker)})")
+            RUN_LOGGER.debug(f"Performance completed marker: {perf_completed_marker} (exists: {os.path.exists(perf_completed_marker)})")
             
             if os.path.exists(perf_completed_marker):
                 RUN_LOGGER.info("All processes finished successfully with performance test completed")
@@ -303,8 +318,20 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
             elif os.path.exists(perf_started_marker):
                 RUN_LOGGER.warning("Performance test started but did not complete - process was interrupted during performance testing")
                 RUN_LOGGER.warning("This might be caused by: GPU resource conflict, memory issues, or long-running performance test timeout")
-                # 返回特殊状态码，表示需要重试性能测试
-                return "retry_performance"
+                
+                # 检查是否是性能测试超时导致的
+                perf_start_time = os.path.getmtime(perf_started_marker)
+                current_time = time.time()
+                elapsed_time = current_time - perf_start_time
+                
+                if elapsed_time > 14400:  # 4小时超时才认为是真正的超时，与性能测试超时保持一致
+                    RUN_LOGGER.warning(f"Performance test likely timed out after {elapsed_time:.0f} seconds")
+                    RUN_LOGGER.warning("Skipping retry due to timeout - this may indicate the test case is too complex or requires more time")
+                    break
+                else:
+                    RUN_LOGGER.warning(f"Performance test interrupted after {elapsed_time:.0f} seconds - may retry")
+                    # 返回特殊状态码，表示需要重试性能测试
+                    return "retry_performance"
             else:
                 RUN_LOGGER.warning("Performance test never started - possible early termination in correctness phase")
                 break
