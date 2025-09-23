@@ -14,8 +14,8 @@ void checkMusaError(musaError_t err, const char* msg) {
     }
 }
 
-#define LOOP_NUM 4
-#define UNROLL_NUM 4
+#define LOOP_NUM 24
+#define UNROLL_NUM 24
 
 // read only
 __global__ void read_only(const float4* src, float4* dst) {
@@ -44,8 +44,8 @@ __global__ void read_only(const float4* src, float4* dst) {
 }
 
 // write only
-#define LOOP_NUM_W 8
-#define UNROLL_NUM_W 8
+#define LOOP_NUM_W 4
+#define UNROLL_NUM_W 4
 
 __global__ void write_only(float4 *dst) {
     int id, dist;
