@@ -28,6 +28,15 @@ CLEAR_CACHES: True
 # for mthreads, using "MUSA_VISIBLE_DEVICES"
 # for dcu, using "HIP_VISIBLE_DEVICES"
 # for xxx, using
+
+M: 4096
+N: 4096
+K: 4096
+WARMUP: 100
+ITERS: 10000
+DIST_BACKEND: "mpi"
+
+
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
 CASES: 
   "computation-FP64": "pytorch_2.3"
