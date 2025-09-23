@@ -263,16 +263,13 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
 
     RUN_LOGGER.debug("Run cmd in the cluster to start tasks, cmd=" + start_cmd)
     CLUSTER_MGR.run_command_some_hosts_distribution_info(
-        start_cmd, nnodes, 180, "base")
+        start_cmd, nnodes, 15, "base")
     # Wait a moment for starting tasks.
     time.sleep(60)
 
 
 def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
     '''wait all the processes of start_xxx_task.py finished.
-    Returns:
-        None: Normal completion or timeout
-        "retry_performance": Performance test needs retry
     '''
     # Aussme pid of start_xxx_task.py won't loop in a short time.
     check_cmd = "cd " + dp_path + "; " + sys.executable \
@@ -281,77 +278,13 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
 
     RUN_LOGGER.debug(
         "Run cmd to check whether the training tasks is running: " + check_cmd)
-    
-    # 添加超时保护，最多等待24小时（86400秒），足够处理长时间的性能测试
-    max_wait_time = 86400  # 24 hours
-    wait_count = 0
-    max_wait_count = max_wait_time // 10  # 每10秒检查一次
-    
-    while wait_count < max_wait_count:
+    while True:
         bad_hosts = CLUSTER_MGR.run_command_some_hosts(check_cmd,
                                                        nnodes,
                                                        no_log=True)
         if len(bad_hosts) == nnodes:
-            # 进程结束了，但检查是否真的完成了所有测试阶段
-            # 标记文件在 case_log_dir/localhost_noderank0/ 目录下
-            pid_dir = os.path.dirname(pid_file_path)
-            # 从PID文件路径推断case名称
-            pid_filename = os.path.basename(pid_file_path)
-            if pid_filename.startswith("start_base_task_"):
-                case_name_from_pid = pid_filename.replace("start_base_task_", "").replace(".pid", "").replace("_retry", "_retry").split("_retry")[0]
-                case_name_original = case_name_from_pid.replace("_", ":")
-                marker_case_dir = os.path.join(pid_dir, case_name_original, "localhost_noderank0")
-            else:
-                # 回退方案：在PID文件同级目录查找
-                marker_case_dir = pid_dir
-            
-            perf_completed_marker = os.path.join(marker_case_dir, "performance_completed.marker")
-            perf_started_marker = os.path.join(marker_case_dir, "performance_started.marker")
-            
-            RUN_LOGGER.debug(f"Checking markers in: {marker_case_dir}")
-            RUN_LOGGER.debug(f"Performance started marker: {perf_started_marker} (exists: {os.path.exists(perf_started_marker)})")
-            RUN_LOGGER.debug(f"Performance completed marker: {perf_completed_marker} (exists: {os.path.exists(perf_completed_marker)})")
-            
-            if os.path.exists(perf_completed_marker):
-                RUN_LOGGER.info("All processes finished successfully with performance test completed")
-                break
-            elif os.path.exists(perf_started_marker):
-                RUN_LOGGER.warning("Performance test started but did not complete - process was interrupted during performance testing")
-                RUN_LOGGER.warning("This might be caused by: GPU resource conflict, memory issues, or long-running performance test timeout")
-                
-                # 检查是否是性能测试超时导致的
-                perf_start_time = os.path.getmtime(perf_started_marker)
-                current_time = time.time()
-                elapsed_time = current_time - perf_start_time
-                
-                if elapsed_time > 14400:  # 4小时超时才认为是真正的超时，与性能测试超时保持一致
-                    RUN_LOGGER.warning(f"Performance test likely timed out after {elapsed_time:.0f} seconds")
-                    RUN_LOGGER.warning("Skipping retry due to timeout - this may indicate the test case is too complex or requires more time")
-                    break
-                else:
-                    RUN_LOGGER.warning(f"Performance test interrupted after {elapsed_time:.0f} seconds - may retry")
-                    # 返回特殊状态码，表示需要重试性能测试
-                    return "retry_performance"
-            else:
-                RUN_LOGGER.warning("Performance test never started - possible early termination in correctness phase")
-                break
+            break
         time.sleep(10)
-        wait_count += 1
-        
-        # 每10分钟输出一次等待状态，并检查容器状态
-        if wait_count % 60 == 0:
-            RUN_LOGGER.info(f"Still waiting for processes to finish... ({wait_count * 10}s elapsed)")
-            # 检查容器是否还在运行
-            container_check_cmd = "docker ps --filter name=" + container_name + " --format '{{.Names}}'"
-            container_status = CLUSTER_MGR.run_command_some_hosts(container_check_cmd, nnodes, no_log=True)
-            if len(container_status) == nnodes:
-                RUN_LOGGER.warning(f"Container {container_name} may have stopped unexpectedly")
-            else:
-                RUN_LOGGER.info(f"Container {container_name} is still running")
-    
-    if wait_count >= max_wait_count:
-        RUN_LOGGER.error(f"Timeout waiting for processes to finish after {max_wait_time}s")
-        RUN_LOGGER.error("This may indicate a stuck process or configuration issue")
 
 
 def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
@@ -360,7 +293,6 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, container_name,
        containers, setup environments, start monitors, and clear caches.'''
 
     RUN_LOGGER.info("a) Stop old container(s) first.")
-    RUN_LOGGER.info(f"Stopping container with name: {container_name}")
     stop_container_in_cluster(dp_path, container_name, nnodes)
     RUN_LOGGER.info("b) Start container(s) in the cluster.")
 
@@ -677,10 +609,8 @@ def main():
             continue
 
         # Set command to start docker container in the cluster
-        # 为每个测试用例创建唯一的容器名，避免冲突
-        safe_case_name = case.replace(":", "-")  # 将冒号替换为横杠，避免Docker命名问题
         container_name = image_mgr.repository + "-" + image_mgr.tag \
-                         + "-" + safe_case_name + "-container"
+                         + "-container"
         if config.VENDOR == "iluvatar":
             container_name = container_name + "_device_" + str(config.DEVICE)
         # Set command to start train script in container in the cluster
@@ -698,7 +628,6 @@ def main():
                     + " --result_log_path " + result_log_path
 
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases. ===")
-        RUN_LOGGER.info(f"Container name for this testcase: {container_name}")
 
         RUN_LOGGER.info("-== Testcase " + case + " starts ==-")
         RUN_LOGGER.info("1) Prepare container environments in cluster...")
@@ -716,50 +645,8 @@ def main():
 
         # Wait until start_xxx_task.py finished.
         RUN_LOGGER.info("3) Waiting for tasks end in the cluster...")
-        # 为每个测试用例创建独立的PID文件，避免冲突
-        safe_case_name_for_pid = case.replace(":", "_")  # 文件名不能包含冒号
-        pid_file_name = f"start_base_task_{safe_case_name_for_pid}.pid"
-        pid_file_path = os.path.join(log_dir_container, pid_file_name)
-        RUN_LOGGER.info(f"Waiting for PID file: {pid_file_path}")
-        
-        # 等待任务完成，支持性能测试重试
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            result = wait_for_finish(dp_path, container_name, pid_file_path, nnodes)
-            
-            if result == "retry_performance":
-                retry_count += 1
-                RUN_LOGGER.warning(f"Performance test failed, attempting retry {retry_count}/{max_retries}")
-                
-                if retry_count < max_retries:
-                    # 清理环境并重新开始性能测试部分
-                    RUN_LOGGER.info("Cleaning up and retrying performance test...")
-                    clean_containers_env_cluster(dp_path, container_name, nnodes, config)
-                    
-                    # 重新准备容器环境
-                    if not prepare_containers_env_cluster(
-                            dp_path, case_log_dir, container_name, image_name, nnodes,
-                            config, custom_docker_cmd):
-                        RUN_LOGGER.error("Failed to prepare container for retry, skipping case")
-                        break
-                    
-                    # 创建性能测试重试任务
-                    retry_base_args = base_args + " --retry_performance_only"
-                    start_tasks_in_cluster(dp_path, container_name, config, retry_base_args,
-                                           curr_log_path, case)
-                    
-                    # 生成新的PID文件路径（避免冲突）
-                    retry_pid_file_name = f"start_base_task_{safe_case_name_for_pid}_retry{retry_count}.pid"
-                    pid_file_path = os.path.join(log_dir_container, retry_pid_file_name)
-                    RUN_LOGGER.info(f"Retrying with PID file: {pid_file_path}")
-                else:
-                    RUN_LOGGER.error(f"Performance test failed after {max_retries} retries, proceeding to next case")
-                    break
-            else:
-                # 正常完成或其他情况
-                break
+        pid_file_path = os.path.join(log_dir_container, "start_base_task.pid")
+        wait_for_finish(dp_path, container_name, pid_file_path, nnodes)
 
         RUN_LOGGER.info("3) Training tasks end in the cluster...")
         RUN_LOGGER.info("4) Clean container environments in cluster...")

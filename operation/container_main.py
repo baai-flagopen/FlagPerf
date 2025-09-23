@@ -107,12 +107,9 @@ if __name__ == "__main__":
     logger.add(sys.stdout, level=config.log_level)
 
     logger.info(config)
-    # 为每个测试用例创建独立的PID文件，避免冲突
-    safe_case_name_for_pid = config.case_name.replace(":", "_")  # 文件名不能包含冒号
-    pid_file_name = f"start_base_task_{safe_case_name_for_pid}.pid"
-    write_pid_file(config.log_dir, pid_file_name)
+    write_pid_file(config.log_dir, "start_base_task.pid")
     logger.info("Success Writing PID file at " +
-                os.path.join(config.log_dir, pid_file_name))
+                os.path.join(config.log_dir, "start_base_task.pid"))
 
     test_file, op, dataformat, spectflops, oplib, chip = config.case_name.split(":")
 
@@ -128,11 +125,6 @@ if __name__ == "__main__":
     start_cmd += " --warmup=" + config.warmup
     start_cmd += " --log_dir=" + config.log_dir
     start_cmd += " --result_log_path=" + config.result_log_path
-    
-    # 传递未知参数给main.py
-    if hasattr(config, 'unknown_args') and config.unknown_args:
-        for arg in config.unknown_args:
-            start_cmd += " " + arg
 
     script_log_file = os.path.join(os.path.dirname(logfile),
                                    "operation.log.txt")

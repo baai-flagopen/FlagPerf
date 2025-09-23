@@ -165,50 +165,29 @@ def merge_result_json_files(valid_dirs):
     return dict(merged_data)
 
 
-def find_all_correctness_logs(valid_dirs):
+def find_correctness_log_dir(valid_dirs):
     """
-    遍历时间戳目录下所有算子目录，收集所有correctness.log.txt文件
-    返回所有找到的正确性日志文件路径列表
+    在有效目录中查找包含correctness.log.txt的目录
     """
-    all_correctness_logs = []
-    
-    for timestamp_dir in valid_dirs:
-        print(f"Searching for correctness logs in timestamp directory: {timestamp_dir}")
-        
-        # 遍历时间戳目录下的所有子目录（算子目录）
-        if os.path.exists(timestamp_dir):
-            for item in os.listdir(timestamp_dir):
-                item_path = os.path.join(timestamp_dir, item)
-                # 检查是否为算子目录（包含冒号的目录名）
-                if os.path.isdir(item_path) and ":" in item:
-                    # 检查这个目录下是否有host_noderank*子目录
-                    try:
-                        for subitem in os.listdir(item_path):
-                            subitem_path = os.path.join(item_path, subitem)
-                            if os.path.isdir(subitem_path) and "noderank" in subitem:
-                                # 检查是否有correctness.log.txt
-                                correctness_log_path = os.path.join(subitem_path, "correctness.log.txt")
-                                if os.path.exists(correctness_log_path):
-                                    try:
-                                        # 检查文件是否为空
-                                        with open(correctness_log_path, 'r', encoding='utf-8') as f:
-                                            content = f.read().strip()
-                                            if content:  # 文件不为空
-                                                all_correctness_logs.append(correctness_log_path)
-                                                print(f"  Found valid correctness.log.txt: {correctness_log_path}")
-                                            else:
-                                                print(f"  Skipping empty correctness.log.txt: {correctness_log_path}")
-                                    except Exception as e:
-                                        print(f"  Error reading correctness.log.txt {correctness_log_path}: {e}")
-                    except Exception as e:
-                        print(f"  Error scanning algorithm directory {item_path}: {e}")
-    
-    if not all_correctness_logs:
-        print("Warning: No valid correctness.log.txt files found in any algorithm directories")
-    else:
-        print(f"Total found {len(all_correctness_logs)} valid correctness.log.txt files")
-    
-    return all_correctness_logs
+    for dir_path in valid_dirs:
+        correctness_log_path = os.path.join(dir_path, "correctness.log.txt")
+        if os.path.exists(correctness_log_path):
+            try:
+                # 检查文件是否为空
+                with open(correctness_log_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:  # 文件不为空
+                        print(f"Found valid correctness.log.txt in: {dir_path}")
+                        return dir_path
+                    else:
+                        print(f"Skipping empty correctness.log.txt in: {dir_path}")
+            except Exception as e:
+                print(f"Error reading correctness.log.txt in {dir_path}: {e}")
+        else:
+            print(f"No correctness.log.txt found in: {dir_path}")
+
+    print("Warning: No valid correctness.log.txt found in any directory")
+    return None
 
 
 def main(vendor, shm_size, chip):
@@ -241,16 +220,23 @@ def main(vendor, shm_size, chip):
     # 生成最终的MD文件到result目录下（覆盖上一次结果）
     readme_output_dir = result_base_dir
 
-    # 查找第一个（最新）时间戳目录下的所有correctness.log.txt文件
-    # 保持原逻辑：只使用第一个时间戳目录的正确性结果
-    first_timestamp_dir = [valid_dirs[0]] if valid_dirs else []
-    all_correctness_logs = find_all_correctness_logs(first_timestamp_dir)
-    
-    render(merged_data, readme_output_dir, vendor, shm_size, chip, all_correctness_logs)
-    
-    # README.md直接生成在目标目录
+    # 查找包含correctness.log.txt的目录
+    correctness_source_dir = find_correctness_log_dir(valid_dirs)
+    if correctness_source_dir is None:
+        correctness_source_dir = readme_output_dir
+        print("Warning: No correctness.log.txt found in any valid directories")
+
+    render(merged_data, correctness_source_dir, vendor, shm_size, chip)
+
+    # 将生成的README.md移动到result目录下
+    source_readme = os.path.join(correctness_source_dir, "README.md")
     target_readme = os.path.join(readme_output_dir, "README.md")
-    print(f"Generated final README.md in: {target_readme}")
+    if source_readme != target_readme and os.path.exists(source_readme):
+        import shutil
+        shutil.move(source_readme, target_readme)
+        print(f"Moved README.md to: {target_readme}")
+    else:
+        print(f"Generated final README.md in: {target_readme}")
 
 
 

@@ -68,10 +68,6 @@ def parse_args():
                         required=True,
                         help="result log path for FlagPerf/operation/result")
 
-    parser.add_argument("--retry_performance_only",
-                        action='store_true',
-                        help="Only run performance test, skip correctness test")
-
     args, unknown_args = parser.parse_known_args()
     args.unknown_args = unknown_args
     return args
@@ -86,61 +82,18 @@ def main(config):
     print(f"Warmup: {config.warmup}")
 
     try:
-        # 重新构造完整的算子名称
-        full_case_name = f"opv2:{config.case_name}:{config.dataformat}:{config.spectflops}:{config.oplib}:{config.chip}"
-        algorithm_dir = os.path.join(config.log_dir, full_case_name)
-        
-        # 查找已存在的noderank目录（container_main.py已经创建的）
-        case_log_dir = None
-        if os.path.exists(algorithm_dir):
-            print(f"Searching for existing noderank directory in: {algorithm_dir}")
-            for item in os.listdir(algorithm_dir):
-                item_path = os.path.join(algorithm_dir, item)
-                if os.path.isdir(item_path) and "noderank0" in item:
-                    case_log_dir = item_path
-                    print(f"Found existing noderank directory: {case_log_dir}")
-                    break
-        
-        # 如果找不到现有目录，使用localhost作为默认（通常container_main.py使用localhost）
-        if case_log_dir is None:
-            case_log_dir = os.path.join(algorithm_dir, "localhost_noderank0")
-            os.makedirs(case_log_dir, exist_ok=True)
-            print(f"Created default case log directory: {case_log_dir}")
-        
-        print(f"Full case name: {full_case_name}")
-        print(f"Using case log directory: {case_log_dir}")
-        print(f"Expected operation.log.txt location: {os.path.join(case_log_dir, 'operation.log.txt')}")
-        
-        # 检查是否只需要重试性能测试
-        if getattr(config, 'retry_performance_only', False):
-            print("=== Retrying performance test only (skipping correctness test) ===")
-            correctness = True  # 假设正确性测试之前已经通过
-        else:
-            print("=== Starting correctness test ===")
-            print(f"FLAGGEMS_WORK_DIR environment: {os.environ.get('FLAGGEMS_WORK_DIR', 'NOT_SET')}")
-            
-            correctness = do_correctness(config.case_name, case_log_dir)
-            print(f"do_correctness returned: {correctness}")
-            correctness = correctness == 0
-            print(f"Correctness result: {correctness}")
+        print("=== Starting correctness test ===")
+        print(f"FLAGGEMS_WORK_DIR environment: {os.environ.get('FLAGGEMS_WORK_DIR', 'NOT_SET')}")
+        correctness = do_correctness(config.case_name, config.log_dir)
+        print(f"do_correctness returned: {correctness}")
+        correctness = correctness == 0
+        print(f"Correctness result: {correctness}")
 
         print("=== Starting performance test ===")
-        # 创建性能测试开始标记文件
-        perf_start_marker = os.path.join(case_log_dir, "performance_started.marker")
-        with open(perf_start_marker, 'w') as f:
-            f.write(f"Performance test started at {time.time()}\n")
-        print(f"Created performance start marker: {perf_start_marker}")
-        
         # test operation performance
-        print(f"Calling do_performance with mode={config.mode}, warmup={config.warmup}, log_dir={case_log_dir}")
-        performance = do_performance(config.mode, config.warmup, case_log_dir)
+        print(f"Calling do_performance with mode={config.mode}, warmup={config.warmup}, log_dir={config.log_dir}")
+        performance = do_performance(config.mode, config.warmup, config.log_dir)
         print(f"do_performance returned: {performance}")
-        
-        # 创建性能测试完成标记文件
-        perf_end_marker = os.path.join(case_log_dir, "performance_completed.marker")
-        with open(perf_end_marker, 'w') as f:
-            f.write(f"Performance test completed at {time.time()}\n")
-        print(f"Created performance end marker: {perf_end_marker}")
 
         # Check if performance is a tuple (success case) or single value (error case)
         if isinstance(performance, tuple):
@@ -152,7 +105,7 @@ def main(config):
 
         print("=== Starting log parsing ===")
         print(f"Calling parse_log_file with spectflops={config.spectflops}, mode={config.mode}, warmup={config.warmup}")
-        parse_log_file(config.spectflops, config.mode, config.warmup, case_log_dir, config.result_log_path)
+        parse_log_file(config.spectflops, config.mode, config.warmup, config.log_dir, config.result_log_path)
         print("=== Log parsing completed ===")
         print("=== Main function completed successfully ===")
         
