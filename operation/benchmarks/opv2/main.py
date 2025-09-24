@@ -31,17 +31,9 @@ def parse_args():
     parser.add_argument("--spectflops",
                         type=str,
                         required=True,
-                        help="spectflops of current dataformat")
+                        help="spectflops for performance calculation")
 
-    parser.add_argument("--dataformat",
-                        type=str,
-                        required=True,
-                        help="like FP32,FP16")
-
-    parser.add_argument("--oplib",
-                        type=str,
-                        required=True,
-                        help="impl like pytorch/flaggems/cpp")
+    # oplib parameter removed - FlagGems is always used in opv2 framework
 
     parser.add_argument("--chip",
                         type=str,
@@ -68,6 +60,11 @@ def parse_args():
                         required=True,
                         help="result log path for FlagPerf/operation/result")
 
+    parser.add_argument("--flaggems_path",
+                        type=str,
+                        required=False,
+                        help="path to FlagGems repository")
+
     args, unknown_args = parser.parse_known_args()
     args.unknown_args = unknown_args
     return args
@@ -83,16 +80,17 @@ def main(config):
 
     try:
         print("=== Starting correctness test ===")
-        print(f"FLAGGEMS_WORK_DIR environment: {os.environ.get('FLAGGEMS_WORK_DIR', 'NOT_SET')}")
-        correctness = do_correctness(config.case_name, config.log_dir)
+        flaggems_path = getattr(config, 'flaggems_path', None)
+        print(f"Using FLAGGEMS_PATH: {flaggems_path}")
+        correctness = do_correctness(config.case_name, config.log_dir, flaggems_path)
         print(f"do_correctness returned: {correctness}")
         correctness = correctness == 0
         print(f"Correctness result: {correctness}")
 
         print("=== Starting performance test ===")
         # test operation performance
-        print(f"Calling do_performance with mode={config.mode}, warmup={config.warmup}, log_dir={config.log_dir}")
-        performance = do_performance(config.mode, config.warmup, config.log_dir)
+        print(f"Calling do_performance with operation={config.case_name}, mode={config.mode}, warmup={config.warmup}, log_dir={config.log_dir}")
+        performance = do_performance(config.case_name, config.mode, config.warmup, config.log_dir, flaggems_path)
         print(f"do_performance returned: {performance}")
 
         # Check if performance is a tuple (success case) or single value (error case)
@@ -154,12 +152,10 @@ if __name__ == "__main__":
         print("=== Arguments parsed successfully ===")
         print(f"Arguments received: {config}")
         
-        if config.oplib == "flaggems":
-            import flag_gems
-            flag_gems.enable()
-            print("Using flaggems")
-        else:
-            print("Using nativetorch")
+        # Always enable FlagGems in opv2 framework
+        import flag_gems
+        flag_gems.enable()
+        print("Using FlagGems (default for opv2 framework)")
         
         print("=== Calling main function ===")
         main(config)

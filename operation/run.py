@@ -229,7 +229,7 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     nnodes = len(config.HOSTS)
     framework = config.CASES[case]
 
-    test_file, op, df, spectflops, oplib, chip = case.split(":")
+    test_file, op, spectflops, chip = case.split(":")
     env_dir = os.path.join(config.FLAGPERF_PATH, "benchmarks", test_file,
                                config.VENDOR, chip)
 
@@ -626,6 +626,10 @@ def main():
                     + " --mode " + config.MODE \
                     + " --warmup " + str(config.WARMUP) \
                     + " --result_log_path " + result_log_path
+        
+        # Add FLAGGEMS_PATH if configured
+        if hasattr(config, 'FLAGGEMS_PATH') and config.FLAGGEMS_PATH:
+            base_args += " --flaggems_path " + config.FLAGGEMS_PATH
 
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases. ===")
 

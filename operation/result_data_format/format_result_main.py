@@ -253,6 +253,6 @@ if __name__ == "__main__":
         shm_size = config.SHM_SIZE
         for run_case in cases:
             case_name = run_case
-        test_file, op, dataformat, spectflops, oplib, chip = case_name.split(":")
+        test_file, op, spectflops, chip = case_name.split(":")
         main(vendor, shm_size, chip)
     print("successful !!!")

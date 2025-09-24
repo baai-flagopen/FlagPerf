@@ -78,6 +78,11 @@ def parse_args():
                         required=True,
                         help="result log path for FlagPerf/operation/result")
 
+    parser.add_argument("--flaggems_path",
+                        type=str,
+                        required=False,
+                        help="path to FlagGems repository")
+
     args, unknown_args = parser.parse_known_args()
     args.unknown_args = unknown_args
     return args
@@ -111,20 +116,22 @@ if __name__ == "__main__":
     logger.info("Success Writing PID file at " +
                 os.path.join(config.log_dir, "start_base_task.pid"))
 
-    test_file, op, dataformat, spectflops, oplib, chip = config.case_name.split(":")
+    test_file, op, spectflops, chip = config.case_name.split(":")
 
     case_dir = os.path.join(config.perf_path, "benchmarks", test_file)
     start_cmd = "cd " + case_dir + ";python3 main.py "
     start_cmd += " --vendor=" + config.vendor
     start_cmd += " --case_name=" + op
     start_cmd += " --spectflops=" + spectflops
-    start_cmd += " --dataformat=" + dataformat
-    start_cmd += " --oplib=" + oplib
+    # dataformat parameter removed
+    # oplib parameter removed - FlagGems is always used
     start_cmd += " --chip=" + chip
     start_cmd += " --mode=" + config.mode
     start_cmd += " --warmup=" + config.warmup
     start_cmd += " --log_dir=" + config.log_dir
     start_cmd += " --result_log_path=" + config.result_log_path
+    if hasattr(config, 'flaggems_path') and config.flaggems_path:
+        start_cmd += " --flaggems_path=" + config.flaggems_path
 
     script_log_file = os.path.join(os.path.dirname(logfile),
                                    "operation.log.txt")
