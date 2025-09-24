@@ -5,6 +5,8 @@ RUN apt-get update --allow-unauthenticated && \
     echo 'root:password' | chpasswd && \
     mkdir -p /root/.ssh && chmod 700 /root/.ssh
 
+RUN pip3 install loguru schedule
+
 COPY id_rsa.pub /root/.ssh/authorized_keys
 COPY id_rsa /root/.ssh/id_rsa
 RUN chmod 600 /root/.ssh/id_rsa
