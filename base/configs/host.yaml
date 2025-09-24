@@ -39,7 +39,7 @@ DIST_BACKEND: "nccl"
 
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
 CASES:
-  "computation-FP8": "pytorch_2.3"
+  "computation-FP16": "pytorch_2.3"
 # nvidia "computation-FP64": "pytorch_2.3"
 # nvidia "computation-FP32": "pytorch_2.3"
 # nvidia "computation-TF32": "pytorch_2.3"
