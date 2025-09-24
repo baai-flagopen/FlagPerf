@@ -8,7 +8,7 @@ FLAGPERF_LOG_LEVEL: "info"
 # only in benchmarks, flagperf will automatically execute benchmakrs/<case>/<vendor>/requirements.txt and env.sh
 # all resources to be used in toolkits/<case>/<vendor>/main.sh, should be under toolkits/<case>/<vendor>/
 BENCHMARKS_OR_TOOLKITS: "BENCHMARK"
-HOSTS: ["10.1.2.3", "10.1.2.39"]
+HOSTS: ["127.0.0.1"]
 NPROC_PER_NODE: 8
 SSH_PORT: "22"
 HOSTS_PORTS: ["22"]
@@ -29,15 +29,13 @@ CLEAR_CACHES: True
 # for dcu, using "HIP_VISIBLE_DEVICES"
 # for xxx, using
 
-Melements: 1024
-WARMUP: 100
-ITERS: 1000
+INITSIZE: 65536
 DIST_BACKEND: "nccl"
 
 
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
 CASES:
-  "interconnect-MPI_interserver": "pytorch_ssh"
+  "main_memory-capacity": "pytorch_2.3"
 # nvidia "computation-FP64": "pytorch_2.3"
 # nvidia "computation-FP32": "pytorch_2.3"
 # nvidia "computation-TF32": "pytorch_2.3"
