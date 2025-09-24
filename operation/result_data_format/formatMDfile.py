@@ -105,10 +105,19 @@ def parse_correctness_log(result_path):
                 summary_text = summary_match.group(1)
                 result['summary'] = summary_text
                 
+                # 从总结行中提取数字
+                passed_match = re.search(r'(\d+)\s+passed', summary_text)
+                failed_match = re.search(r'(\d+)\s+failed', summary_text)
+                error_match = re.search(r'(\d+)\s+error', summary_text)
+                
+                summary_passed = int(passed_match.group(1)) if passed_match else 0
+                summary_failed = int(failed_match.group(1)) if failed_match else 0
+                summary_error = int(error_match.group(1)) if error_match else 0
+                
                 # 根据总结确定整体状态
-                if failed_count > 0 or error_count > 0:
+                if summary_failed > 0 or summary_error > 0:
                     result['status'] = '❌ 测试失败'
-                elif passed_count > 0:
+                elif summary_passed > 0:
                     result['status'] = '✅ 测试通过'
                 else:
                     result['status'] = '⚠️ 无测试结果'
