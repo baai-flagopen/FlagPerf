@@ -92,8 +92,11 @@ def do_performance(operation, mode, warmup, result_log_dir, flaggems_path=None):
             
         print(f"Running performance test for {operation} using: pytest -m {operation} --level core --record log")
         
-        # 删除历史日志（简化的日志文件名）
-        log_file = os.path.join(benchmark_dir, f"result--level_core--record_log.log")
+        # 正确的日志文件名格式：result-m_{operation}--level_core--record_log.log
+        log_file = os.path.join(benchmark_dir, f"result-m_{operation}--level_core--record_log.log")
+        print(f"Expected log file path: {log_file}")
+        
+        # 删除历史日志
         print(f"Deleting old log file: {log_file}")
         del_process = subprocess.Popen(["rm", "-f", log_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         del_process.communicate()
@@ -108,19 +111,28 @@ def do_performance(operation, mode, warmup, result_log_dir, flaggems_path=None):
         print(f"Performance test exit code: {p.returncode}")
 
         # 检查日志文件是否生成
-        print(f"Expected log file: {log_file}")
+        print(f"Checking for log file: {log_file}")
         print(f"Log file exists: {os.path.exists(log_file)}")
         
         if os.path.exists(log_file):
             try:
                 cp_subprocess = subprocess.run(["cp", f"{log_file}", f"{result_log_dir}/result.log.txt"], check=True)
-                print(f"Successfully copied log to {result_log_dir}/result.log.txt")
+                print(f"Successfully copied log from {log_file} to {result_log_dir}/result.log.txt")
                 return p.returncode, cp_subprocess.returncode
             except subprocess.CalledProcessError as e:
                 print(f"Failed to copy log file: {e}")
                 return p.returncode, 1
         else:
             print(f"Log file not found: {log_file}")
+            # 列出benchmark目录下所有可能的日志文件用于调试
+            try:
+                ls_process = subprocess.run(["ls", "-la", benchmark_dir], capture_output=True, text=True)
+                print(f"Files in benchmark directory:\n{ls_process.stdout}")
+                # 查找所有可能的日志文件
+                find_process = subprocess.run(["find", benchmark_dir, "-name", "result*.log"], capture_output=True, text=True)
+                print(f"Found log files:\n{find_process.stdout}")
+            except Exception as e:
+                print(f"Failed to list directory: {e}")
             return p.returncode, 1
             
     except Exception as e:
