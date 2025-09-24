@@ -40,8 +40,20 @@ def model_forward(model, dataloader, evaluator, config):
     vae.eval()
     text_encoder.eval()
 
-    metric = CLIPScore(model_name_or_path=config.data_dir + "/" +
-                       config.eval_weights)
+    # 调试信息：检查容器内的HuggingFace缓存
+    import os
+    cache_path = "/root/.cache/huggingface/hub"
+    logger.info(f"=== 调试信息开始 ===")
+    logger.info(f"检查缓存目录: {cache_path}")
+    if os.path.exists(cache_path):
+        logger.info(f"缓存目录存在，内容: {os.listdir(cache_path)}")
+    else:
+        logger.info(f"缓存目录不存在")
+    logger.info(f"config.eval_weights = {config.eval_weights}")
+    logger.info(f"开始初始化CLIPScore...")
+    logger.info(f"=== 调试信息结束 ===")
+    
+    metric = CLIPScore(model_name_or_path=config.eval_weights)
     metric.eval()
 
     generator = torch.Generator().manual_seed(config.random_seed)
@@ -152,8 +164,20 @@ def engine_forward(model, dataloader, evaluator, config):
     vae.eval()
     text_encoder.eval()
 
-    metric = CLIPScore(model_name_or_path=config.data_dir + "/" +
-                       config.eval_weights)
+    # 调试信息：检查容器内的HuggingFace缓存
+    import os
+    cache_path = "/root/.cache/huggingface/hub"
+    logger.info(f"=== 调试信息开始 ===")
+    logger.info(f"检查缓存目录: {cache_path}")
+    if os.path.exists(cache_path):
+        logger.info(f"缓存目录存在，内容: {os.listdir(cache_path)}")
+    else:
+        logger.info(f"缓存目录不存在")
+    logger.info(f"config.eval_weights = {config.eval_weights}")
+    logger.info(f"开始初始化CLIPScore...")
+    logger.info(f"=== 调试信息结束 ===")
+    
+    metric = CLIPScore(model_name_or_path=config.eval_weights)
     metric.eval()
 
     generator = torch.Generator().manual_seed(config.random_seed)

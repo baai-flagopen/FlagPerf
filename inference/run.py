@@ -15,7 +15,6 @@ from munch import DefaultMunch
 import getpass
 from loguru import logger
 from collections import namedtuple
-from argparse import ArgumentParser
 
 CURR_PATH = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.abspath(os.path.join(CURR_PATH, "../")))
@@ -72,19 +71,10 @@ def init_logger(config):
 
 def usage():
     ''' Show usage and exit with exit_code. '''
-    print("Usage: python3 ", __file__, " [--custom-docker-cmd 'docker run command']")
-    print("Edit config file in configs/ and run.")
-    print("Optional: --custom-docker-cmd 'your complete docker run command'")
+    print("Usage: python3 ", __file__)
+    print("Edit config file test_conf.py & cluster_conf.py in "
+          "training/run_benchmarks/config and run.")
     sys.exit(0)
-
-
-def parse_args():
-    '''Parse command line arguments'''
-    parser = ArgumentParser(description='FlagPerf Inference Benchmarks')
-    parser.add_argument('--custom-docker-cmd',
-                       type=str,
-                       help='Complete docker run command to use instead of default assembly')
-    return parser.parse_args()
 
 
 def check_cluster_health():
@@ -219,11 +209,11 @@ def prepare_running_env(dp_path, container_name, case_config):
 def start_container_in_cluster(dp_path, run_args, container_name, image_name,
                                nnodes):
     '''Call CLUSTER_MGR tool to start containers.'''
-    start_cmd = "cd " + dp_path + " && " + sys.executable \
-                + " ../utils/container_manager.py -o runnew " \
-                + " -c " + container_name + " -i " + image_name + " -a \"" \
-                + run_args + "\""
+    # 直接构建docker命令，避免多层shell转义问题
+    direct_docker_cmd = "docker run " + run_args + " --name=" + container_name + " " + image_name + " sleep infinity"
+    start_cmd = direct_docker_cmd
     logger.debug("Run cmd in the cluster to start container: " + start_cmd)
+    logger.debug("[DEBUG] Container run_args: " + run_args)
     bad_hosts = CLUSTER_MGR.run_command_some_hosts(start_cmd, nnodes, 600)
     if len(bad_hosts) != 0:
         logger.error("Hosts that can't start docker container: " +
@@ -232,64 +222,21 @@ def start_container_in_cluster(dp_path, run_args, container_name, image_name,
     return True
 
 
-def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
-    '''Start containers using custom docker command.'''
-    # Replace {CONTAINER_NAME} placeholder with actual container name if exists
-    final_cmd = custom_docker_cmd.replace("{CONTAINER_NAME}", container_name)
-    # 进入自定义流程
-    logger.debug("···············进入自定义流程···············")
-    # If no placeholder and no --name in command, add container name
-    if "{CONTAINER_NAME}" not in custom_docker_cmd and "--name" not in custom_docker_cmd:
-        # Add container name before the image name (assuming format: docker run [options] image [cmd])
-        parts = final_cmd.split()
-        # Find where to insert --name (before the image name, usually the last non-option argument)
-        insert_pos = len(parts)
-        for i, part in enumerate(parts):
-            if not part.startswith('-') and i > 1:  # Skip 'docker' and 'run'
-                insert_pos = i
-                break
-        parts.insert(insert_pos, f"--name={container_name}")
-        final_cmd = " ".join(parts)
-
-    logger.debug("Run custom docker cmd in the cluster: " + final_cmd)
-    bad_hosts = CLUSTER_MGR.run_command_some_hosts(final_cmd, nnodes, 600)
-    if len(bad_hosts) != 0:
-        logger.error("Hosts that can't start custom docker container: " +
-                     ",".join(bad_hosts.keys()))
-        return False
-    return True
-
-
 def stop_container_in_cluster(dp_path, container_name, nnodes):
-    '''Call CLUSTER_MGR tool to stop containers with enhanced cleanup.'''
-    
-    # 首先尝试正常停止容器
+    '''Call CLUSTER_MGR tool to stop containers.'''
     stop_cont_cmd = "cd " + dp_path + " && " + sys.executable \
                     + " ../utils/container_manager.py -o stop" \
                     + " -c " + container_name
-    logger.debug("Run cmd to stop container(s) in the cluster:" + stop_cont_cmd)
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes, 60)
-    
-    # 如果正常停止失败，尝试强制清理
+    logger.debug("Run cmd to stop container(s) in the cluster:" +
+                 stop_cont_cmd)
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts(stop_cont_cmd, nnodes,
+                                                      60)
     if len(failed_hosts) != 0:
-        logger.warning("Normal container stop failed, attempting force cleanup...")
-        
-        # 强制停止和删除容器
-        force_cleanup_cmd = f"docker ps -aq --filter name={container_name} | xargs -r docker rm -f"
-        logger.debug("Force cleanup cmd: " + force_cleanup_cmd)
-        
-        cleanup_failed = CLUSTER_MGR.run_command_some_hosts(force_cleanup_cmd, nnodes, 30)
-        
-        # 额外清理：删除所有相关容器
-        extra_cleanup_cmd = "docker container prune -f"
-        CLUSTER_MGR.run_command_some_hosts(extra_cleanup_cmd, nnodes, 30)
-        
-        if len(cleanup_failed) != 0:
-            logger.warning("Hosts that force cleanup failed:" + 
-                         ",".join(cleanup_failed.keys()) + " Continue.")
-            return False
-    
-    logger.info("All containers stopped and cleaned up in the cluster")
+        logger.warning("Hosts that stop container " + container_name +
+                       " failed:" + ",".join(failed_hosts.keys()) +
+                       " Continue.")
+        return False
+    logger.info("All containers stoped in the cluster")
     return True
 
 
@@ -369,15 +316,21 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, curr_log_path,
                            config):
     '''Start tasks in cluster, and NOT wait.'''
     nnodes = case_config["nnodes"]
-    framework = case_config["framework"].split("_")[0]
     env_file = os.path.join(
         config.FLAGPERF_PATH, config.VENDOR,
-        case_config["model"] + "-" + framework,
+        case_config["model"] + "-" + case_config["framework"],
         "config/environment_variables.sh")
-    
-    # 创建增强的启动命令，类似训练版本的改动
-    debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/inference_debug.log"
-    
+
+    must_configs = [
+        "FLAGPERF_PATH", "FLAGPERF_LOG_PATH", "MODEL", "VENDOR",
+        "FLAGPERF_LOG_LEVEL"
+    ]
+    new_case_config = {"DATA_DIR": case_config["data_dir_container"]}
+    new_case_config = {"FLAGPERF_LOG_PATH": curr_log_path}
+
+    for cfg in must_configs:
+        new_case_config[cfg] = getattr(config, cfg)
+
     run_container_cmd = "python3 run_inference.py" \
                 + f" --perf_dir " + getattr(config, "FLAGPERF_PATH") \
                 + f" --loglevel " + getattr(config, "FLAGPERF_LOG_LEVEL") \
@@ -385,45 +338,14 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, curr_log_path,
                 + f" --case " + case_config["model"]  \
                 + f" --data_dir " + case_config["data_dir_container"] \
                 + f" --framework " + case_config["framework"] \
-                + f" --log_dir " + curr_log_path
-
-    if os.path.isfile(env_file):
-        start_cmd = "cd " + dp_path + " && " + sys.executable \
+                + f" --log_dir " + curr_log_path  + " 2>&1 | tee "+curr_log_path+"/stdout_err.out.log"
+    start_cmd = "cd " + dp_path + " && " + sys.executable \
                 + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -t 600 -r \"python3 --version"
-        
-        # 创建日志目录并记录调试信息
-        start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                     + " && echo 'Starting inference task at '$(date) > " + debug_log_path \
-                     + " && source " + env_file \
-                     + " > " + curr_log_path + "/source_env.log.txt 2>&1" \
-                     + " && echo 'Environment sourced, starting inference' >> " + debug_log_path \
-                     + " && " + run_container_cmd \
-                     + " 2>&1 | tee -a " + debug_log_path \
-                     + " && echo 'Inference finished with exit code: '$? >> " + debug_log_path
-    else:
-        start_cmd = "cd " + dp_path + " && " + sys.executable \
-                + " ../utils/container_manager.py -o runcmdin -c " \
-                + container_name + " -d -t 600 -r \"python3 --version" \
-                + " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
-                + " && echo 'Starting inference task (no env) at '$(date) > " + debug_log_path \
-                + " && " + run_container_cmd \
-                + " 2>&1 | tee -a " + debug_log_path \
-                + " && echo 'Inference finished with exit code: '$? >> " + debug_log_path
+                + container_name + " -r \"" + run_container_cmd + "\""
     
-    start_cmd += "\""
-    
-    logger.debug("Run cmd in the cluster to start inference tasks, cmd=" + start_cmd)
-    logger.info(f"Inference main args: {run_container_cmd}")
-    
-    # 执行命令并检查结果
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 15, "inference")
-    
-    if failed_hosts and len(failed_hosts) > 0:
-        logger.error(f"Inference command execution failed on hosts: {list(failed_hosts.keys())}")
-    else:
-        logger.info("Inference command execution started successfully on all hosts")
-    
+    logger.debug("Run cmd in the run_container_cmd to start tasks, cmd: \n" + run_container_cmd)
+    logger.debug("Run cmd in the cluster to start tasks, cmd: \n" + start_cmd)
+    CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 15, "inference")
     # Wait a moment for starting tasks.
     time.sleep(10)
 
@@ -431,138 +353,72 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, curr_log_path,
     logger.info("Check task log in real time from container: " +
                 curr_log_path + "/container.out.log")
     logger.info("Check task stderr & stdout in real time from container: " +
-                curr_log_path + "/inference_debug.log")
+                curr_log_path + "/stdout_err.out.log")
 
 
 def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
-    '''wait all the processes finished with timeout.
+    '''wait all the processes of start_xxx_task.py finished.
     '''
-    # 设置最大等待时间（推理任务通常比训练快）
-    max_wait_time = 1800  # 30分钟超时
-    start_wait_time = time.time()
-    
+    # Aussme pid of start_xxx_task.py won't loop in a short time.
     check_cmd = "cd " + dp_path + "; " + sys.executable \
                 + " ../utils/container_manager.py -o pidrunning -c " \
                 + container_name + " -f " + pid_file_path
 
-    logger.debug("Run cmd to check whether the inference tasks is running: " + check_cmd)
-    
-    # 首先等待任务启动
-    time.sleep(5)
-    
-    while time.time() - start_wait_time < max_wait_time:
+    logger.debug("Run cmd to check whether the training tasks is running: " +
+                 check_cmd)
+    while True:
         bad_hosts = CLUSTER_MGR.run_command_some_hosts(check_cmd,
                                                        nnodes,
                                                        no_log=True)
+
         if len(bad_hosts) == nnodes:
             break
         time.sleep(10)
-    
-    if time.time() - start_wait_time >= max_wait_time:
-        logger.warning("Inference task wait timeout reached, proceeding with cleanup")
-    
-    logger.info("Inference tasks finished in the cluster")
 
 
 def prepare_containers_env_cluster(dp_path, case_log_dir, config,
-                                   container_name, image_name, case_config, custom_docker_cmd=None):
+                                   container_name, image_name, case_config):
     '''Prepare containers environments in the cluster. It will start
        containers, setup environments, start monitors, and clear caches.'''
     nnodes = case_config["nnodes"]
-    
-    logger.info("a) Check and clean Docker environment first.")
-    
-    # 检查Docker状态
-    docker_status_cmd = "docker ps"
-    logger.debug("Checking running Docker containers: " + docker_status_cmd)
-    CLUSTER_MGR.run_command_some_hosts(docker_status_cmd, nnodes, 30)
-    
-    # 检查容器是否存在，然后清理
-    check_container_cmd = f"docker ps -aq --filter name={container_name}"
-    logger.debug("Checking if container exists: " + check_container_cmd)
-    existing_result = CLUSTER_MGR.run_command_some_hosts(check_container_cmd, nnodes, 15)
-    
-    # 如果容器存在（命令成功执行），则进行清理
-    if len(existing_result) == 0:  # 没有失败的主机，说明命令执行成功
-        logger.info("Found existing containers, cleaning up...")
-        
-        # 停止容器
-        stop_related_cmd = f"docker stop {container_name} 2>/dev/null || true"
-        logger.debug("Stopping existing container: " + stop_related_cmd)
-        CLUSTER_MGR.run_command_some_hosts(stop_related_cmd, nnodes, 15)
-        
-        # 删除容器
-        remove_related_cmd = f"docker rm {container_name} 2>/dev/null || true"
-        logger.debug("Removing existing container: " + remove_related_cmd)
-        CLUSTER_MGR.run_command_some_hosts(remove_related_cmd, nnodes, 15)
-    else:
-        logger.info("No existing containers found, proceeding with fresh start.")
+    container_start_args = " --rm --init --detach --net=host --uts=host" \
+                           + " --ipc=host --security-opt=seccomp=unconfined" \
+                           + " --privileged=true --ulimit=stack=67108864" \
+                           + " --ulimit=memlock=-1" \
+                           + " -w " + config.FLAGPERF_PATH \
+                           + " --shm-size=" + config.SHM_SIZE \
+                           + " -v " + dp_path + ":" \
+                           + config.FLAGPERF_PATH \
+                           + " -v " + os.path.join(dp_path, "..") + ":" \
+                           + os.path.join(config.FLAGPERF_PATH, "..") \
+                           + " -v " + case_config["data_dir_host"] + ":" \
+                           + case_config["data_dir_container"] \
+                           + " -v " + "/home/secure/data/stable_diffusion/val/clip-vit-base-patch32" + ":" \
+                           + "/root/.cache/huggingface/hub/models--openai--clip-vit-base-patch32/snapshots/main"
+    if config.ACCE_CONTAINER_OPT is not None:
+        container_start_args += " " + config.ACCE_CONTAINER_OPT
 
-    logger.info("b) Stop old container(s) first.")
+    logger.info("a) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
-    logger.info("c) Start container(s) in the cluster.")
+    logger.info("b) Start container(s) in the cluster.")
+    if not start_container_in_cluster(dp_path, container_start_args,
+                                      container_name, image_name, nnodes):
+        logger.error("b) Start container in the cluster......"
+                     "[FAILED]. Ignore this round.")
+        return False
+    logger.info("b) Start container(s) in the cluster.......[SUCCESS]")
 
-    if custom_docker_cmd is not None and custom_docker_cmd.strip():
-        # Use custom docker command
-        logger.info("Using custom docker command: " + custom_docker_cmd)
-        if not start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
-            logger.error("c) Start custom container in the cluster......"
-                         "[FAILED]. Ignore this round.")
-            return False
-    else:
-        # Use default container assembly logic
-        container_start_args = " --rm --init --detach --net=host --uts=host" \
-                               + " --ipc=host --security-opt=seccomp=unconfined" \
-                               + " --privileged=true --ulimit=stack=67108864" \
-                               + " --ulimit=memlock=-1" \
-                               + " -w " + config.FLAGPERF_PATH \
-                               + " --shm-size=" + config.SHM_SIZE \
-                               + " -v " + dp_path + ":" \
-                               + config.FLAGPERF_PATH \
-                               + " -v " + os.path.join(dp_path, "..") + ":" \
-                               + os.path.join(config.FLAGPERF_PATH, "..") \
-                               + " -v " + case_config["data_dir_host"] + ":" \
-                               + case_config["data_dir_container"]
-        if config.ACCE_CONTAINER_OPT is not None:
-            container_start_args += " " + config.ACCE_CONTAINER_OPT
-
-        if not start_container_in_cluster(dp_path, container_start_args,
-                                          container_name, image_name, nnodes):
-            logger.error("c) Start container in the cluster......"
-                         "[FAILED]. Ignore this round.")
-            return False
-
-    logger.info("c) Start container(s) in the cluster.......[SUCCESS]")
-    
-    # 验证容器是否真的启动成功
-    verify_cmd = f"docker ps --filter name={container_name}"
-    logger.debug("Verifying container status: " + verify_cmd)
-    CLUSTER_MGR.run_command_some_hosts(verify_cmd, nnodes, 15)
-    
-    # 测试容器是否响应命令
-    logger.info("Testing container command execution...")
-    test_cmd = "cd " + dp_path + " && " + sys.executable \
-               + " ../utils/container_manager.py -o runcmdin -c " \
-               + container_name + " -d -t 30 -r \"echo 'Container test: '$(date) && whoami && pwd\""
-    logger.debug("Container test command: " + test_cmd)
-    test_result = CLUSTER_MGR.run_command_some_hosts(test_cmd, nnodes, 30)
-    
-    if len(test_result) == 0:
-        logger.info("✓ Container responds to commands successfully")
-    else:
-        logger.warning("✗ Container command test failed on hosts: " + ",".join(test_result.keys()))
-
-    logger.info("d) Prepare running environment.")
+    logger.info("c) Prepare running environment.")
     if not prepare_running_env(dp_path, container_name, case_config):
-        logger.error("d) Prepare running environment......"
+        logger.error("c) Prepare running environment......"
                      "[FAILED]. Ignore this round.")
         logger.info("Stop containers in cluster.")
         stop_container_in_cluster(dp_path, container_name, nnodes)
         return False
-    logger.info("d) Prepare running environment......[SUCCESS]")
-    logger.info("e) Start monitors......")
+    logger.info("c) Prepare running environment......[SUCCESS]")
+    logger.info("d) Start monitors......")
     start_monitors_in_cluster(dp_path, case_log_dir, nnodes)
-    logger.info("f) Clear system caches if it set......")
+    logger.info("e) Clear system caches if it set......")
     clear_caches_cluster(config.CLEAR_CACHES, nnodes)
     return True
 
@@ -701,7 +557,7 @@ def log_test_configs(cases, curr_log_path, dp_path):
     logger.info("--------------------------------------------------")
 
 
-def main(config, custom_docker_cmd=None):
+def main(config):
     '''Main process to run all the testcases'''
 
     curr_log_whole = init_logger(config)
@@ -713,11 +569,7 @@ def main(config, custom_docker_cmd=None):
     check_test_host_config(config)
 
     # Check test environment and configs from host.yaml.
-    current_user = getpass.getuser()
-    logger.info(f"DEBUG: Current user detected as: {current_user}")
-    logger.info(f"DEBUG: Real user ID: {os.getuid()}")
-    logger.info(f"DEBUG: Effective user ID: {os.geteuid()}")
-    CLUSTER_MGR.init(config.HOSTS, config.SSH_PORT, current_user, logger)
+    CLUSTER_MGR.init(config.HOSTS, config.SSH_PORT, getpass.getuser(), logger)
     check_cluster_health()
     dp_path = _get_deploy_path(config)
     check_cluster_deploy_path(dp_path)
@@ -758,7 +610,7 @@ def main(config, custom_docker_cmd=None):
 
         if not prepare_containers_env_cluster(dp_path, case_log_dir, config,
                                               container_name, image_name,
-                                              case_config, custom_docker_cmd):
+                                              case_config):
             logger.error("1) Prepare container environments in cluster"
                          "...[FAILED]. Ignore case " + case)
             continue
@@ -767,7 +619,7 @@ def main(config, custom_docker_cmd=None):
         start_tasks_in_cluster(dp_path, container_name, case_config,
                                curr_log_path, config)
 
-        logger.info("3) Inference tasks end in the cluster...")
+        logger.info("3) Training tasks end in the cluster...")
         logger.info("4) Clean container environments in cluster...")
         clean_containers_env_cluster(dp_path, container_name, nnodes)
         logger.info("-== Testcase " + case + " finished ==-")
@@ -778,30 +630,12 @@ def main(config, custom_docker_cmd=None):
 
 
 if __name__ == '__main__':
-    # 解析命令行参数，兼容原来的逻辑
-    custom_docker_cmd = None
-    
-    # 检查是否有help参数或无效参数
     if len(sys.argv) > 1:
-        # 如果参数不是--custom-docker-cmd，按原来的逻辑显示usage
-        if '--custom-docker-cmd' not in ' '.join(sys.argv):
-            usage()
-        else:
-            # 解析自定义docker命令
-            args = parse_args()
-            custom_docker_cmd = args.custom_docker_cmd
-            # 如果custom_docker_cmd为空字符串或只包含空格，设置为None保持兼容性
-            if not custom_docker_cmd or not custom_docker_cmd.strip():
-                custom_docker_cmd = None
-        
+        usage()
     CURR_PATH = os.path.abspath(os.path.dirname(__file__))
     yaml_path = os.path.join(CURR_PATH, "configs/host.yaml")
     data = yaml.safe_load(open(yaml_path))
 
     config = DefaultMunch.fromDict(data)
 
-    try:
-        main(config, custom_docker_cmd)
-    except Exception as e:
-        logger.error(f"Inference run failed: {e}")
-        sys.exit(1)
+    main(config)

@@ -12,11 +12,17 @@ RUN pip3 install munch
 ENV FLAGGEMS_WORK_DIR /workspace
 RUN mkdir -p $FLAGGEMS_WORK_DIR
 
+# 更新Triton到最新版本以支持exp2函数
+RUN pip3 install --upgrade triton
+
+# 升级pytest到最新版本
+RUN pip3 install --upgrade pytest
+
 # 克隆并安装FlagGems
 WORKDIR $FLAGGEMS_WORK_DIR
-RUN git clone https://github.com/baai-flagopen/FlagGems.git
+RUN git clone https://github.com/FlagOpen/FlagGems.git
 WORKDIR $FLAGGEMS_WORK_DIR/FlagGems
-RUN git checkout 801377f03ba4649bc2d839ff34e38be66ee8a633
+
 RUN pip3 install -e .
 
 # 设置工作目录回到根目录

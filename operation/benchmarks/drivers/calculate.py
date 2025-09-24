@@ -9,88 +9,135 @@ import os
 import subprocess
 
 
-def do_correctness(operation):
-    flaggems_dir = os.getenv("FLAGGEMS_WORK_DIR", "/")
+def do_correctness(operation, result_log_dir, flaggems_path=None):
+    print(f"=== do_correctness called with operation={operation}, result_log_dir={result_log_dir} ===")
+    
+    # 使用配置的 FLAGGEMS_PATH，如果没有则使用环境变量作为后备
+    if flaggems_path:
+        gems_repo = flaggems_path
+        print(f"Using configured FLAGGEMS_PATH: {gems_repo}")
+    else:
+        gems_repo = os.getenv("FLAGGEMS_WORK_DIR", "/workspace/FlagGems")
+        print(f"Using FLAGGEMS_WORK_DIR fallback: {gems_repo}")
+    
+    # 检查 FlagGems 路径是否存在
+    if not os.path.exists(gems_repo):
+        print(f"FlagGems path not found: {gems_repo}, skipping correctness test")
+        return 0
+    
     try:
-        gems_repo = subprocess.check_output(
-            ["find", flaggems_dir, "-type", "d", "-name", "FlagGems"], text=True).strip()
-        
-        if not gems_repo:
-            print(f"FlagGems repository not found in {flaggems_dir}")
-            return 0  # Skip correctness check
-            
         tests_dir = os.path.join(gems_repo, 'tests')
         if not os.path.exists(tests_dir):
             print(f"Tests directory not found: {tests_dir}")
             return 0  # Skip correctness check
             
-        # 根据算子类型映射到对应的测试文件
-        operation_to_testfile = {
-            "mm": "test_blas_ops.py",
-            "bmm": "test_blas_ops.py", 
-            "addmm": "test_blas_ops.py",
-            "mv": "test_blas_ops.py",
-            "outer": "test_blas_ops.py",
-            "add": "test_binary_pointwise_ops.py",
-            "sub": "test_binary_pointwise_ops.py",
-            "mul": "test_binary_pointwise_ops.py",
-            "div": "test_binary_pointwise_ops.py",
-            "eq": "test_binary_pointwise_ops.py",
-            "ge": "test_binary_pointwise_ops.py",
-            "gt": "test_binary_pointwise_ops.py",
-            "le": "test_binary_pointwise_ops.py",
-            "lt": "test_binary_pointwise_ops.py",
-            "ne": "test_binary_pointwise_ops.py",
-            "softmax": "test_general_reduction_ops.py",
-            "layernorm": "test_norm_ops.py",
-            "mean": "test_general_reduction_ops.py",
-            "sum": "test_general_reduction_ops.py"
-        }
+        print(f"Running correctness test for {operation} using: pytest -m {operation} --ref cpu")
         
-        test_filename = operation_to_testfile.get(operation)
-        if test_filename:
-            test_file = os.path.join(tests_dir, test_filename)
-            if os.path.exists(test_file):
-                print(f"Running correctness test for {operation} using {test_filename}")
-                # 使用pytest运行特定算子的测试
-                p = subprocess.Popen(
-                    f"cd {tests_dir} && python3 -m pytest {test_filename} -v -k 'test_accuracy_{operation}' --tb=short",
-                    shell=True
-                )
-                p.wait()
-                print(f"Correctness test completed for {operation}, exit code: {p.returncode}")
-                # 返回真实的测试结果：0表示成功，非0表示失败
-                return p.returncode
-            else:
-                print(f"Test file {test_filename} not found for operation {operation}")
-        else:
-            print(f"No test mapping found for operation: {operation}")
-            
-        # 如果没有找到对应的测试文件，尝试通用方式
-        print(f"Trying generic test approach for {operation}...")
+        # 创建日志文件路径
+        correctness_log = os.path.join(tests_dir, f"correctness_{operation}_test.log")
         
-        # 检查是否有通用的测试文件
-        generic_tests = ["test_binary_pointwise_ops.py", "test_blas_ops.py"]
-        for generic_test in generic_tests:
-            test_file = os.path.join(tests_dir, generic_test)
-            if os.path.exists(test_file):
-                print(f"Found generic test file: {generic_test}")
-                p = subprocess.Popen(
-                    f"cd {tests_dir} && python3 -m pytest {generic_test} -v -k '{operation}' --tb=short",
-                    shell=True
-                )
-                p.wait()
-                print(f"Generic test completed for {operation}, exit code: {p.returncode}")
-                # 返回真实的测试结果
-                return p.returncode
-                
-        print(f"No suitable test found for operation: {operation}, skipping correctness check")
-        # 如果找不到测试，返回0表示跳过（不是失败）
-        return 0
+        # 删除历史日志
+        del_process = subprocess.Popen(["rm", "-f", correctness_log], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        del_process.communicate()
+        
+        # 使用简化的pytest命令：pytest -m {operation} --ref cpu
+        with open(correctness_log, 'w') as log_file:
+            p = subprocess.Popen(
+                f"cd {tests_dir} && pytest -m {operation} --ref cpu",
+                shell=True,
+                stdout=log_file,
+                stderr=subprocess.STDOUT
+            )
+            p.wait()
+        
+        print(f"Correctness test completed for {operation}, exit code: {p.returncode}")
+        
+        # 复制日志文件到结果目录
+        try:
+            cp_subprocess = subprocess.run(["cp", correctness_log, f"{result_log_dir}/correctness.log.txt"], check=True)
+            print(f"Correctness log copied to {result_log_dir}/correctness.log.txt")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to copy correctness log: {e}")
+        
+        # 返回真实的测试结果：0表示成功，非0表示失败
+        return p.returncode
             
     except Exception as e:
         print(f"Error during correctness check: {e}")
         return 0  # Skip correctness check on error
+
+
+        # test operation performance
+def do_performance(operation, mode, warmup, result_log_dir, flaggems_path=None):
+    print(f"=== do_performance called with operation={operation}, mode={mode}, warmup={warmup}, result_log_dir={result_log_dir} ===")
+    
+    # 使用配置的 FLAGGEMS_PATH，如果没有则使用环境变量作为后备
+    if flaggems_path:
+        gems_repo = flaggems_path
+        print(f"Using configured FLAGGEMS_PATH: {gems_repo}")
+    else:
+        gems_repo = os.getenv("FLAGGEMS_WORK_DIR", "/workspace/FlagGems")
+        print(f"Using FLAGGEMS_WORK_DIR fallback: {gems_repo}")
+    
+    # 检查 FlagGems 路径是否存在
+    if not os.path.exists(gems_repo):
+        print(f"FlagGems path not found: {gems_repo}, returning error")
+        return 1
+    
+    try:
+        benchmark_dir = os.path.join(gems_repo, 'benchmark')
+        if not os.path.exists(benchmark_dir):
+            print(f"Benchmark directory not found: {benchmark_dir}")
+            return 1
+            
+        print(f"Running performance test for {operation} using: pytest -m {operation} --level core --record log")
+        
+        # 正确的日志文件名格式：result-m_{operation}--level_core--record_log.log
+        log_file = os.path.join(benchmark_dir, f"result-m_{operation}--level_core--record_log.log")
+        print(f"Expected log file path: {log_file}")
+        
+        # 删除历史日志
+        print(f"Deleting old log file: {log_file}")
+        del_process = subprocess.Popen(["rm", "-f", log_file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        del_process.communicate()
+        
+        # 使用简化的pytest命令：pytest -m {operation} --level core --record log
+        perf_cmd = f"cd {benchmark_dir} && pytest -m {operation} --level core --record log"
+        print(f"Running performance test: {perf_cmd}")
+        
+        p = subprocess.Popen(perf_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        stdout, _ = p.communicate()
+        print(f"Performance test output: {stdout.decode() if stdout else 'No output'}")
+        print(f"Performance test exit code: {p.returncode}")
+
+        # 检查日志文件是否生成
+        print(f"Checking for log file: {log_file}")
+        print(f"Log file exists: {os.path.exists(log_file)}")
+        
+        if os.path.exists(log_file):
+            try:
+                cp_subprocess = subprocess.run(["cp", f"{log_file}", f"{result_log_dir}/result.log.txt"], check=True)
+                print(f"Successfully copied log from {log_file} to {result_log_dir}/result.log.txt")
+                return p.returncode, cp_subprocess.returncode
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to copy log file: {e}")
+                return p.returncode, 1
+        else:
+            print(f"Log file not found: {log_file}")
+            # 列出benchmark目录下所有可能的日志文件用于调试
+            try:
+                ls_process = subprocess.run(["ls", "-la", benchmark_dir], capture_output=True, text=True)
+                print(f"Files in benchmark directory:\n{ls_process.stdout}")
+                # 查找所有可能的日志文件
+                find_process = subprocess.run(["find", benchmark_dir, "-name", "result*.log"], capture_output=True, text=True)
+                print(f"Found log files:\n{find_process.stdout}")
+            except Exception as e:
+                print(f"Failed to list directory: {e}")
+            return p.returncode, 1
+            
+    except Exception as e:
+        print(f"Error during performance test: {e}")
+        return 1  # Return error code
 
 grad_outputs = None
 

@@ -1,1 +1,4 @@
 transformers == 4.40.0
+pandas
+torch
+numpy

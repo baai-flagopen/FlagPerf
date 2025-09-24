@@ -229,9 +229,9 @@ def start_tasks_in_cluster(dp_path, container_name, config, base_args,
     nnodes = len(config.HOSTS)
     framework = config.CASES[case]
 
-    op, df, spectflops, oplib, chip = case.split(":")
-    env_dir = os.path.join(config.FLAGPERF_PATH, "benchmarks", op,
-                           config.VENDOR, chip)
+    test_file, op, spectflops, chip = case.split(":")
+    env_dir = os.path.join(config.FLAGPERF_PATH, "benchmarks", test_file,
+                               config.VENDOR, chip)
 
     env_shell = os.path.join(env_dir, "env.sh")
     req_file = os.path.join(env_dir, "requirements.txt")
@@ -586,6 +586,7 @@ def main():
     check_cluster_deploy_path(dp_path)
     cases = get_valid_cases(config)
     log_test_configs(cases, curr_log_path, dp_path, config)
+    result_log_path = os.path.join(config.FLAGPERF_PATH, curr_log_path)
 
     RUN_LOGGER.info("========= Step 2: Prepare and Run test cases. =========")
 
@@ -621,7 +622,14 @@ def main():
                     + " --nproc_per_node " + str(config.NPROC_PER_NODE) \
                     + " --log_dir " + os.path.join(dp_path, log_dir_container) \
                     + " --log_level " + config.FLAGPERF_LOG_LEVEL.upper() \
-                    + " --master_port " + config.MASTER_PORT
+                    + " --master_port " + config.MASTER_PORT \
+                    + " --mode " + config.MODE \
+                    + " --warmup " + str(config.WARMUP) \
+                    + " --result_log_path " + result_log_path
+        
+        # Add FLAGGEMS_PATH if configured
+        if hasattr(config, 'FLAGGEMS_PATH') and config.FLAGGEMS_PATH:
+            base_args += " --flaggems_path " + config.FLAGGEMS_PATH
 
         RUN_LOGGER.info("=== 2.2 Setup container and run testcases. ===")
 
