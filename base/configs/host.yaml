@@ -29,13 +29,17 @@ CLEAR_CACHES: True
 # for dcu, using "HIP_VISIBLE_DEVICES"
 # for xxx, using
 
-INITSIZE: 65536
+M: 4096
+N: 4096
+K: 4096
+WARMUP: 100
+ITERS: 10000
 DIST_BACKEND: "nccl"
 
 
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
 CASES:
-  "main_memory-capacity": "pytorch_2.3"
+  "computation-FP8": "pytorch_2.3"
 # nvidia "computation-FP64": "pytorch_2.3"
 # nvidia "computation-FP32": "pytorch_2.3"
 # nvidia "computation-TF32": "pytorch_2.3"
