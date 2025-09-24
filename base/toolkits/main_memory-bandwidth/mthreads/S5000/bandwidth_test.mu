@@ -14,8 +14,8 @@ void checkMusaError(musaError_t err, const char* msg) {
     }
 }
 
-#define LOOP_NUM 24
-#define UNROLL_NUM 24
+#define LOOP_NUM 25
+#define UNROLL_NUM 30
 
 // read only
 __global__ void read_only(const float4* src, float4* dst) {
