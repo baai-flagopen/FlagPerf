@@ -68,7 +68,7 @@ def extract_arrays_from_shape_detail(shape_detail):
         return str(shape_detail), str(shape_detail)
 
 
-def find_valid_timestamp_dirs(result_base_dir, max_count=1):
+def find_valid_timestamp_dirs(result_base_dir, max_count=3):
     """
     查找包含有效result.json的时间戳目录
     返回最多max_count个有效的时间戳目录路径
@@ -193,8 +193,8 @@ def find_correctness_log_dir(valid_dirs):
 def main(vendor, shm_size, chip):
     result_base_dir = os.path.join(OP_PATH, "result")
 
-    # 查找最后1个有效的时间戳目录
-    valid_dirs = find_valid_timestamp_dirs(result_base_dir, max_count=1)
+    # 查找最多3个有效的时间戳目录
+    valid_dirs = find_valid_timestamp_dirs(result_base_dir, max_count=3)
 
     if not valid_dirs:
         print("No valid timestamp directories with result.json found")
