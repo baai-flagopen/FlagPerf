@@ -72,18 +72,46 @@ def init_logger(config):
 
 def usage():
     ''' Show usage and exit with exit_code. '''
-    print("Usage: python3 ", __file__, " [--custom-docker-cmd 'docker run command']")
-    print("Edit config file host.yaml in configs and run.")
+    print("🚀 FlagPerf 模型推理基准测试程序")
+    print("=" * 50)
+    print("📝 使用方法:")
+    print("  python run.py [--custom-docker-cmd 'DOCKER_COMMAND']")
+    print("")
+    print("📋 参数说明:")
+    print("  --custom-docker-cmd    自定义Docker运行命令，替代默认的容器配置")
+    print("                        支持 {CONTAINER_NAME} 占位符自动替换容器名")
+    print("")
+    print("💡 示例:")
+    print("  # 使用默认配置")
+    print("  python run.py")
+    print("")
+    print("  # 使用自定义Docker命令")
+    print("  python run.py --custom-docker-cmd 'docker run --rm --gpus all --shm-size 32G -v /home/secure/:/home/secure/ --name {CONTAINER_NAME} flagperf-inference-nvidia-pytorch_2.1:t_v0.1 sleep infinity'")
+    print("")
+    print("🔧 配置:")
+    print("  请编辑 configs/host.yaml 文件进行基本配置")
+    print("=" * 50)
     sys.exit(0)
 
 
 def parse_args():
     '''Parse command line arguments'''
-    parser = ArgumentParser(description='FlagPerf Inference Benchmarks')
+    parser = ArgumentParser(description='🚀 FlagPerf 模型推理基准测试程序')
     parser.add_argument('--custom-docker-cmd',
                        type=str,
-                       help='Complete docker run command to use instead of default assembly')
-    return parser.parse_args()
+                       metavar='DOCKER_COMMAND',
+                       help='自定义Docker运行命令，替代默认的容器配置。'
+                            '支持使用 {CONTAINER_NAME} 占位符自动替换容器名称。'
+                            '例如: "docker run --rm --gpus all --name {CONTAINER_NAME} IMAGE sleep infinity"')
+    parser.add_argument('--help-custom', 
+                       action='store_true',
+                       help='显示自定义Docker命令的详细使用说明')
+    args = parser.parse_args()
+    
+    if args.help_custom:
+        usage()
+    
+    return args
 
 
 def check_cluster_health():
@@ -233,12 +261,15 @@ def start_container_in_cluster(dp_path, run_args, container_name, image_name,
 
 def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
     '''Start containers using custom docker command.'''
+    logger.info("🔧 使用自定义Docker命令启动容器")
+    logger.debug("📝 原始自定义命令: " + custom_docker_cmd)
+    
     # Replace {CONTAINER_NAME} placeholder with actual container name if exists
     final_cmd = custom_docker_cmd.replace("{CONTAINER_NAME}", container_name)
-    # 进入自定义流程
-    logger.debug("······················进入自定义流程·······················")
+    
     # If no placeholder and no --name in command, add container name
     if "{CONTAINER_NAME}" not in custom_docker_cmd and "--name" not in custom_docker_cmd:
+        logger.debug("🏷️  自动添加容器名称到命令中")
         # Add container name before the image name (assuming format: docker run [options] image [cmd])
         parts = final_cmd.split()
         # Find where to insert --name (before the image name, usually the last non-option argument)
@@ -250,12 +281,21 @@ def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes)
         parts.insert(insert_pos, f"--name={container_name}")
         final_cmd = " ".join(parts)
 
-    logger.debug("Run custom docker cmd in the cluster: " + final_cmd)
+    logger.info("✅ 最终执行的Docker命令: " + final_cmd)
+    
+    # 检查命令基本格式
+    if not final_cmd.strip().startswith("docker run"):
+        logger.error("❌ 自定义命令必须以 'docker run' 开头")
+        return False
+    
+    # 执行自定义Docker命令
     bad_hosts = CLUSTER_MGR.run_command_some_hosts(final_cmd, nnodes, 600)
     if len(bad_hosts) != 0:
-        logger.error("Hosts that can't start custom docker container: " +
+        logger.error("❌ 自定义Docker容器启动失败的主机: " +
                      ",".join(bad_hosts.keys()))
         return False
+    
+    logger.info("✅ 自定义Docker容器在所有主机上启动成功")
     return True
 
 
@@ -371,56 +411,75 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, curr_log_path,
     nnodes = case_config["nnodes"]
     framework = case_config["framework"].split("_")[0]
     env_file = os.path.join(
-        config.FLAGPERF_PATH, "benchmarks", case_config["model"], framework,
-        "environment_variables.sh")
+        config.FLAGPERF_PATH, config.VENDOR,
+        case_config["model"] + "-" + framework,
+        "config/environment_variables.sh")
 
     # 创建增强的启动命令，类似训练版本的改动
     debug_log_path = config.FLAGPERF_PATH + "/" + curr_log_path + "/inference_debug.log"
 
-    # 构建容器内执行的推理命令
-    inference_cmd = f"cd {config.FLAGPERF_PATH} && mkdir -p {curr_log_path}"
-    
     if os.path.isfile(env_file):
-        inference_cmd += f" && source {env_file}"
+        start_cmd = "cd " + dp_path + " && " + sys.executable \
+                + " ../utils/container_manager.py -o runcmdin -c " \
+                + container_name + " -t 600 -r \"python3 --version"
+        
+        # 创建日志目录并记录调试信息
+        start_cmd += " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
+                     + " && echo 'Starting inference task at '$(date) > " + debug_log_path \
+                     + " && source " + env_file \
+                     + " > " + curr_log_path + "/source_env.log.txt 2>&1" \
+                     + " && echo 'Environment sourced, starting inference' >> " + debug_log_path \
+                     + " && python3 run_inference.py" \
+                     + f" --perf_dir " + config.FLAGPERF_PATH \
+                     + f" --loglevel " + config.FLAGPERF_LOG_LEVEL \
+                     + f" --vendor " + config.VENDOR \
+                     + f" --case " + case_config["model"] \
+                     + f" --data_dir " + case_config["data_dir_container"] \
+                     + f" --framework " + case_config["framework"] \
+                     + f" --log_dir " + curr_log_path \
+                     + " 2>&1 | tee -a " + debug_log_path \
+                     + " && echo 'Inference finished with exit code: '$? >> " + debug_log_path
+    else:
+        start_cmd = "cd " + dp_path + " && " + sys.executable \
+                + " ../utils/container_manager.py -o runcmdin -c " \
+                + container_name + " -t 600 -r \"python3 --version" \
+                + " && mkdir -p " + config.FLAGPERF_PATH + "/" + curr_log_path \
+                + " && echo 'Starting inference task (no env) at '$(date) > " + debug_log_path \
+                + " && python3 run_inference.py" \
+                + f" --perf_dir " + config.FLAGPERF_PATH \
+                + f" --loglevel " + config.FLAGPERF_LOG_LEVEL \
+                + f" --vendor " + config.VENDOR \
+                + f" --case " + case_config["model"] \
+                + f" --data_dir " + case_config["data_dir_container"] \
+                + f" --framework " + case_config["framework"] \
+                + f" --log_dir " + curr_log_path \
+                + " 2>&1 | tee -a " + debug_log_path \
+                + " && echo 'Inference finished with exit code: '$? >> " + debug_log_path
     
-    inference_cmd += f" && python3 run_inference.py" \
-                    + f" --perf_dir {config.FLAGPERF_PATH}" \
-                    + f" --loglevel {config.FLAGPERF_LOG_LEVEL}" \
-                    + f" --vendor {config.VENDOR}" \
-                    + f" --case {case_config['model']}" \
-                    + f" --data_dir {case_config['data_dir_container']}" \
-                    + f" --framework {case_config['framework']}" \
-                    + f" --log_dir {curr_log_path}"
-    
-    # 添加可见设备环境变量
     if config.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
-        inference_cmd += f" --visible_dev_env {config.ACCE_VISIBLE_DEVICE_ENV_NAME}"
+        start_cmd += " --visible_dev_env " \
+                     + config.ACCE_VISIBLE_DEVICE_ENV_NAME
+    start_cmd += " \""
     
-    # 构建在容器中执行命令的完整命令 - 使用后台执行模式
-    start_cmd = f"docker exec -d {container_name} bash -c \"{inference_cmd}\""
+    logger.debug("Run cmd in the cluster to start inference tasks, cmd=" + start_cmd)
+    logger.info(f"Inference main command for case: {case_config['model']}")
     
-    logger.debug("在集群中执行推理任务命令: " + start_cmd)
-    logger.info(f"🔥 开始执行模型推理: {case_config['model']}")
-    
-    # 执行命令并检查结果 - 使用较短超时时间启动任务
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 60, "inference")
+    # 执行命令并检查结果
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 15, "inference")
     
     if failed_hosts and len(failed_hosts) > 0:
-        logger.error(f"❌ 推理命令在以下主机上启动失败: {list(failed_hosts.keys())}")
-        return False  # 返回失败状态
+        logger.error(f"Inference command execution failed on hosts: {list(failed_hosts.keys())}")
     else:
-        logger.info("✅ 推理命令在所有主机上成功启动")
+        logger.info("Inference command execution started successfully on all hosts")
     
     # Wait a moment for starting tasks.
     time.sleep(10)
 
-    logger.info("📝 实时查看容器任务日志: " +
+    logger.info("3) Waiting for tasks end in the cluster...")
+    logger.info("Check task log in real time from container: " +
                 curr_log_path + "/container.out.log")
-    logger.info("📄 实时查看容器标准输出和错误日志: " +
+    logger.info("Check task stderr & stdout in real time from container: " +
                 curr_log_path + "/stdout_err.out.log")
-    logger.info("💡 推理任务已启动，等待逻辑将在主流程中处理")
-    
-    return True  # 返回成功状态
 
 
 def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
@@ -460,11 +519,11 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, config,
        containers, setup environments, start monitors, and clear caches.'''
     nnodes = case_config["nnodes"]
     
-    logger.info("a) 🔍 首先检查和清理Docker环境")
+    logger.info("a) Check and clean Docker environment first.")
     
     # 检查Docker状态
     docker_status_cmd = "docker ps"
-    logger.debug("检查正在运行的Docker容器: " + docker_status_cmd)
+    logger.debug("Checking running Docker containers: " + docker_status_cmd)
     CLUSTER_MGR.run_command_some_hosts(docker_status_cmd, nnodes, 30)
     
     # 检查容器是否存在，然后清理
@@ -488,16 +547,16 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, config,
     else:
         logger.info("No existing containers found, proceeding with fresh start.")
 
-    logger.info("b) 🛑 首先停止旧容器")
+    logger.info("b) Stop old container(s) first.")
     stop_container_in_cluster(dp_path, container_name, nnodes)
-    logger.info("c) 🚀 在集群中启动容器")
+    logger.info("c) Start container(s) in the cluster.")
 
     if custom_docker_cmd is not None:
         # Use custom docker command
-        logger.info("🔧 使用自定义Docker命令: " + custom_docker_cmd)
+        logger.info("🎯 检测到自定义Docker命令，将使用用户提供的容器配置")
+        logger.debug("📋 自定义命令内容: " + custom_docker_cmd)
         if not start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes):
-            logger.error("b) Start custom container in the cluster......"
-                         "[FAILED]. Ignore this round.")
+            logger.error("❌ 自定义容器启动失败 [失败]. 跳过此轮测试")
             return False
     else:
         # Use default container assembly logic
@@ -524,36 +583,37 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, config,
                          "[FAILED]. Ignore this round.")
             return False
 
-    logger.info("c) ✅ 容器在集群中启动成功")
+    logger.info("c) Start container(s) in the cluster.......[SUCCESS]")
     
     # 验证容器是否真的启动成功
     verify_cmd = f"docker ps --filter name={container_name}"
-    logger.debug("验证容器状态: " + verify_cmd)
+    logger.debug("Verifying container status: " + verify_cmd)
     CLUSTER_MGR.run_command_some_hosts(verify_cmd, nnodes, 15)
     
     # 测试容器是否响应命令
-    logger.info("🧪 测试容器命令执行...")
+    logger.info("Testing container command execution...")
     test_cmd = "cd " + dp_path + " && " + sys.executable \
                + " ../utils/container_manager.py -o runcmdin -c " \
                + container_name + " -t 30 -r \"echo 'Container test: '$(date) && whoami && pwd\""
-    logger.debug("容器测试命令: " + test_cmd)
+    logger.debug("Container test command: " + test_cmd)
     test_result = CLUSTER_MGR.run_command_some_hosts(test_cmd, nnodes, 30)
     
     if len(test_result) == 0:
-        logger.info("✅ 容器成功响应命令")
+        logger.info("✓ Container responds to commands successfully")
     else:
-        logger.warning("⚠️  容器命令测试在以下主机上失败: " + ",".join(test_result.keys()))
+        logger.warning("✗ Container command test failed on hosts: " + ",".join(test_result.keys()))
 
-    logger.info("d) 🔧 准备运行环境")
+    logger.info("d) Prepare running environment.")
     if not prepare_running_env(dp_path, container_name, case_config, config):
-        logger.error("d) 运行环境准备失败 [失败]. 跳过此轮测试")
-        logger.info("停止集群中的容器")
+        logger.error("d) Prepare running environment......"
+                     "[FAILED]. Ignore this round.")
+        logger.info("Stop containers in cluster.")
         stop_container_in_cluster(dp_path, container_name, nnodes)
         return False
-    logger.info("d) ✅ 运行环境准备成功")
-    logger.info("e) 📊 启动监控器...")
+    logger.info("d) Prepare running environment......[SUCCESS]")
+    logger.info("e) Start monitors......")
     start_monitors_in_cluster(dp_path, case_log_dir, nnodes, config)
-    logger.info("f) 🧹 清理系统缓存...")
+    logger.info("f) Clear system caches if it set......")
     clear_caches_cluster(config.CLEAR_CACHES, nnodes)
     return True
 
@@ -561,9 +621,9 @@ def prepare_containers_env_cluster(dp_path, case_log_dir, config,
 def clean_containers_env_cluster(dp_path, container_name, nnodes, config):
     '''Clean containers environments in the cluster. It will stop containers,
        and stop monitors.'''
-    logger.info("a) 🛑 停止容器...")
+    logger.info("a) Stop containers......")
     stop_container_in_cluster(dp_path, container_name, nnodes)
-    logger.info("b) 📊 停止监控器...")
+    logger.info("b) Stop monitors......")
     stop_monitors_in_cluster(dp_path, nnodes, config)
 
 
@@ -575,10 +635,6 @@ def compilation_result(case_log_path, config):
                                      config.VENDOR + "_monitor.log")
 
     case_perf = None
-    if not os.path.exists(case_perf_path):
-        logger.error(f"❌ 日志文件未找到: {case_perf_path}")
-        logger.error("⚠️  推理任务可能失败了，请检查容器日志获取详细信息")
-        return
     case_file = open(case_perf_path)
 
     for line in case_file.readlines():
@@ -588,19 +644,7 @@ def compilation_result(case_log_path, config):
             break
 
     if case_perf is None:
-        logger.error("❌ 推理任务执行失败！未找到 'Finish Info' 标志")
-        logger.error("📄 正在显示日志文件内容以便调试:")
-        
-        # 显示日志文件的最后几行内容
-        try:
-            with open(case_perf_path, 'r') as f:
-                lines = f.readlines()
-                logger.error("📋 日志文件最后20行内容:")
-                for i, line in enumerate(lines[-20:], start=len(lines)-19):
-                    logger.error(f"  {i:3d}: {line.rstrip()}")
-        except Exception as e:
-            logger.error(f"无法读取日志文件: {e}")
-        
+        logger.error("Case Run Failed, Please Check Log!")
         return
 
     vendor_module = importlib.import_module("docker_images." + config.VENDOR +
@@ -731,8 +775,7 @@ def main(config, custom_docker_cmd=None):
     logger.info("========= Step 2: Prepare and Run test cases. =========")
 
     for case in cases:
-        logger.info("======= 测试用例: " + case + " =======")
-        logger.info("🚀 开始执行推理任务: " + case)
+        logger.info("======= Testcase: " + case + " =======")
         _, case_config = get_config_from_case(case, config)
 
         # Prepare docker image.
@@ -741,22 +784,21 @@ def main(config, custom_docker_cmd=None):
             case_config["framework"], "t_" + VERSION)
         image_name = image_mgr.repository + ":" + image_mgr.tag
         nnodes = case_config["nnodes"]
-        logger.info("=== 2.1 准备Docker镜像: " + image_name + " ===")
-        logger.info("📦 正在构建和准备推理环境镜像...")
+        logger.info("=== 2.1 Prepare docker image:" + image_name + " ===")
         if not prepare_docker_image_cluster(
                 dp_path, image_mgr, case_config["framework"], nnodes, config):
-            logger.error("=== 2.1 Docker镜像准备失败 [失败] " +
-                         "跳过此测试用例 " + case + " ===")
+            logger.error("=== 2.1 Prepare docker image...[FAILED] " +
+                         "Ignore this case " + case + " ===")
             continue
 
         # Set command to start docker container in the cluster
         container_name = image_mgr.repository + "-" + image_mgr.tag \
                                               + "-container"
 
-        logger.info("=== 2.2 启动容器并执行推理任务 ===")
+        logger.info("=== 2.2 Setup container and run testcases. ===")
 
-        logger.info("-== 测试用例 " + case + " 开始执行 ==-")
-        logger.info("1) 🔧 在集群中准备容器环境...")
+        logger.info("-== Testcase " + case + " starts ==-")
+        logger.info("1) Prepare container environments in cluster...")
         case_log_dir = os.path.join(curr_log_whole, case)
         curr_log_path = os.path.join(case_log_dir,
                                      config.HOSTS[0] + "_noderank0")
@@ -764,123 +806,28 @@ def main(config, custom_docker_cmd=None):
         if not prepare_containers_env_cluster(dp_path, case_log_dir, config,
                                               container_name, image_name,
                                               case_config, custom_docker_cmd):
-            logger.error("1) 容器环境准备失败 [失败]. 跳过测试用例 " + case)
+            logger.error("1) Prepare container environments in cluster"
+                         "...[FAILED]. Ignore case " + case)
             continue
-        logger.info("2) 🎯 在集群中启动推理任务...")
+        logger.info("2) Start tasks in the cluster...")
 
-        if not start_tasks_in_cluster(dp_path, container_name, case_config,
-                                      curr_log_path, config):
-            logger.error("❌ 推理任务启动失败，跳过此测试用例")
-            clean_containers_env_cluster(dp_path, container_name, nnodes, config)
-            continue
+        start_tasks_in_cluster(dp_path, container_name, case_config,
+                               curr_log_path, config)
 
         # Wait until inference tasks finished.
-        logger.info("3) ⏳ 等待推理任务完成...")
-        logger.info(f"📊 正在执行 {case_config['model']} 模型推理，请耐心等待...")
-        # 使用更智能的等待策略：检查推理任务是否真正完成
-        max_wait_time = 3600  # 1小时最大等待时间
-        start_wait_time = time.time()
+        logger.info("3) Waiting for inference tasks to complete...")
+        # Note: 推理任务通常较快完成，使用简单的等待策略
+        logger.info("   Inference tasks are typically fast, waiting for completion...")
+        time.sleep(30)  # 给推理任务一些时间完成
+        logger.info("   Basic waitcompleted. Check logs for detailed results.")
         
-        # 等待推理任务完成的循环 - 异步检查机制
-        logger.info("🔍 开始异步检查推理任务状态...")
-        
-        # 初始等待时间，让推理任务有时间启动
-        initial_wait = 60  # 等待60秒让任务真正开始
-        logger.info(f"⏰ 初始等待 {initial_wait} 秒，让推理任务充分启动...")
-        time.sleep(initial_wait)
-        
-        # 验证推理任务是否真的启动了
-        startup_check_cmd = f"docker exec {container_name} bash -c \"pgrep -f 'run_inference.py' && echo 'INFERENCE_STARTED' || echo 'INFERENCE_NOT_STARTED'\""
-        startup_result = CLUSTER_MGR.run_command_some_hosts(startup_check_cmd, nnodes, 15)
-        
-        if len(startup_result) == 0:
-            logger.info("✅ 推理任务已成功启动，开始监控...")
-        else:
-            logger.warning("⚠️  推理任务可能未成功启动，继续监控以确认...")
-        
-        check_interval = 30  # 检查间隔30秒
-        
-        while time.time() - start_wait_time < max_wait_time:
-            elapsed_time = int(time.time() - start_wait_time)
-            
-            # 方法1: 检查推理进程是否还在运行
-            process_check_cmd = f"docker exec {container_name} bash -c \"pgrep -f 'run_inference.py' && echo 'PROCESS_RUNNING' || echo 'PROCESS_STOPPED'\""
-            process_result = CLUSTER_MGR.run_command_some_hosts(process_check_cmd, nnodes, 15)
-            
-            # 方法2: 检查日志文件状态
-            log_check_cmd = f"docker exec {container_name} bash -c \"if [ -f {curr_log_path}/container.out.log ]; then if grep -q 'Finish Info' {curr_log_path}/container.out.log; then echo 'LOG_FINISHED'; else echo 'LOG_EXISTS_NO_FINISH'; fi; else echo 'LOG_NOT_EXISTS'; fi\""
-            log_result = CLUSTER_MGR.run_command_some_hosts(log_check_cmd, nnodes, 15)
-            
-            # 调试信息
-            logger.debug(f"进程检查结果: failed_hosts={len(process_result)}, 结果={process_result}")
-            logger.debug(f"日志检查结果: failed_hosts={len(log_result)}, 结果={log_result}")
-            
-            # 判断任务是否完成
-            task_finished = False
-            
-            # 检查进程状态 - 如果命令执行成功
-            if len(process_result) == 0:
-                logger.debug("✓ 进程检查命令执行成功")
-                # 进程已停止，需要进一步检查日志
-                process_stopped = True
-            else:
-                logger.debug("✗ 进程检查命令执行失败，假设进程仍在运行")
-                process_stopped = False
-            
-            # 检查日志状态 - 如果命令执行成功  
-            if len(log_result) == 0:
-                logger.debug("✓ 日志检查命令执行成功")
-                # 需要检查具体的日志状态输出
-                # 这里需要更复杂的逻辑来判断日志内容
-                if process_stopped:  # 只有在进程停止时才检查日志完成
-                    logger.info("✅ 推理进程已停止，检查日志完成状态...")
-                    # 再次详细检查日志
-                    final_check_cmd = f"docker exec {container_name} bash -c \"if [ -f {curr_log_path}/container.out.log ]; then grep -q 'Finish Info' {curr_log_path}/container.out.log && echo 'TRULY_FINISHED' || echo 'LOG_NO_FINISH'; else echo 'NO_LOG_FILE'; fi\""
-                    final_result = CLUSTER_MGR.run_command_some_hosts(final_check_cmd, nnodes, 15)
-                    
-                    if len(final_result) == 0:
-                        logger.info("✅ 推理任务真正完成，发现完成标志")
-                        task_finished = True
-                    else:
-                        logger.warning("⚠️  推理进程停止但未找到完成标志，可能失败")
-                        
-                        # 显示容器内的错误信息以便调试
-                        debug_cmd = f"docker exec {container_name} bash -c \"tail -20 {curr_log_path}/container.out.log 2>/dev/null || echo 'No container.out.log found'\""
-                        debug_result = CLUSTER_MGR.run_command_some_hosts(debug_cmd, nnodes, 15)
-                        if len(debug_result) == 0:
-                            logger.warning("📋 容器内推理日志最后几行:")
-                        
-                        # 检查容器内是否有错误日志
-                        error_cmd = f"docker exec {container_name} bash -c \"ls -la {curr_log_path}/ 2>/dev/null || echo 'Log directory not found'\""
-                        error_result = CLUSTER_MGR.run_command_some_hosts(error_cmd, nnodes, 15)
-                        
-                        task_finished = True  # 进程停止就认为完成，即使可能失败
-                else:
-                    logger.debug("🔄 推理进程仍在运行，继续等待...")
-            else:
-                logger.debug("✗ 日志检查命令执行失败")
-            
-            if task_finished:
-                break
-            
-            # 报告进度
-            if elapsed_time % 60 == 0 or elapsed_time < 120:  # 前2分钟每30秒报告一次，之后每分钟报告一次
-                logger.info(f"🔄 推理任务仍在运行中，已等待 {elapsed_time} 秒...")
-            
-            time.sleep(check_interval)
-        
-        if time.time() - start_wait_time >= max_wait_time:
-            logger.warning("⚠️  推理任务等待超时，继续进行清理工作")
-        
-        logger.info("   ✅ 推理任务等待完成，请查看日志获取详细结果")
-        
-        logger.info("4) 🎉 集群中的推理任务已完成")
-        logger.info("5) 🧹 清理集群中的容器环境...")
+        logger.info("4) Inference tasks completed in the cluster...")
+        logger.info("5) Clean container environments in cluster...")
         clean_containers_env_cluster(dp_path, container_name, nnodes, config)
-        logger.info("-== 测试用例 " + case + " 执行完成 ==-")
-        logger.info("=== 2.2 容器启动和推理任务执行完成 ===")
-        logger.info("=== 2.3 📈 编译性能结果报告 ===")
-        logger.info("📋 正在分析推理结果和性能指标...")
+        logger.info("-== Testcase " + case + " finished ==-")
+        logger.info("=== 2.2 Setup container and run testcases finished."
+                    " ===")
+        logger.info("=== 2.3 Compilation Case Performance ===")
         compilation_result(curr_log_path, config)
 
 
@@ -894,6 +841,15 @@ if __name__ == '__main__':
     data = yaml.safe_load(open(yaml_path))
 
     config = DefaultMunch.fromDict(data)
+    
+    # 显示自定义命令信息
+    if custom_docker_cmd:
+        print("🎯 检测到自定义Docker命令模式")
+        print(f"📋 自定义命令: {custom_docker_cmd}")
+        print("=" * 80)
+    else:
+        print("📦 使用默认Docker容器配置")
+        print("=" * 80)
 
     main(config, custom_docker_cmd)
 
