@@ -241,6 +241,10 @@ def start_custom_container_in_cluster(custom_docker_cmd, container_name, nnodes)
         parts.insert(insert_pos, f"--name={container_name}")
         final_cmd = " ".join(parts)
 
+    # Add sleep infinity to keep container running if not already present
+    if "sleep infinity" not in final_cmd and "tail -f /dev/null" not in final_cmd:
+        final_cmd += " sleep infinity"
+
     logger.debug("Run custom docker cmd in the cluster: " + final_cmd)
     bad_hosts = CLUSTER_MGR.run_command_some_hosts(final_cmd, nnodes, 600)
     if len(bad_hosts) != 0:
