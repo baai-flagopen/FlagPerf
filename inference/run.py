@@ -588,7 +588,19 @@ def compilation_result(case_log_path, config):
             break
 
     if case_perf is None:
-        logger.error("Case Run Failed, Please Check Log!")
+        logger.error("❌ 推理任务执行失败！未找到 'Finish Info' 标志")
+        logger.error("📄 正在显示日志文件内容以便调试:")
+        
+        # 显示日志文件的最后几行内容
+        try:
+            with open(case_perf_path, 'r') as f:
+                lines = f.readlines()
+                logger.error("📋 日志文件最后20行内容:")
+                for i, line in enumerate(lines[-20:], start=len(lines)-19):
+                    logger.error(f"  {i:3d}: {line.rstrip()}")
+        except Exception as e:
+            logger.error(f"无法读取日志文件: {e}")
+        
         return
 
     vendor_module = importlib.import_module("docker_images." + config.VENDOR +
@@ -831,6 +843,17 @@ def main(config, custom_docker_cmd=None):
                         task_finished = True
                     else:
                         logger.warning("⚠️  推理进程停止但未找到完成标志，可能失败")
+                        
+                        # 显示容器内的错误信息以便调试
+                        debug_cmd = f"docker exec {container_name} bash -c \"tail -20 {curr_log_path}/container.out.log 2>/dev/null || echo 'No container.out.log found'\""
+                        debug_result = CLUSTER_MGR.run_command_some_hosts(debug_cmd, nnodes, 15)
+                        if len(debug_result) == 0:
+                            logger.warning("📋 容器内推理日志最后几行:")
+                        
+                        # 检查容器内是否有错误日志
+                        error_cmd = f"docker exec {container_name} bash -c \"ls -la {curr_log_path}/ 2>/dev/null || echo 'Log directory not found'\""
+                        error_result = CLUSTER_MGR.run_command_some_hosts(error_cmd, nnodes, 15)
+                        
                         task_finished = True  # 进程停止就认为完成，即使可能失败
                 else:
                     logger.debug("🔄 推理进程仍在运行，继续等待...")
