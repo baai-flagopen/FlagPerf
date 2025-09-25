@@ -396,17 +396,17 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, curr_log_path,
     if config.ACCE_VISIBLE_DEVICE_ENV_NAME is not None:
         inference_cmd += f" --visible_dev_env {config.ACCE_VISIBLE_DEVICE_ENV_NAME}"
     
-    # 构建在容器中执行命令的完整命令
-    start_cmd = f"docker exec {container_name} bash -c \"{inference_cmd}\""
+    # 构建在容器中执行命令的完整命令 - 使用后台执行模式
+    start_cmd = f"docker exec -d {container_name} bash -c \"{inference_cmd}\""
     
     logger.debug("在集群中执行推理任务命令: " + start_cmd)
     logger.info(f"🔥 开始执行模型推理: {case_config['model']}")
     
-    # 执行命令并检查结果
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 10800, "inference")
+    # 执行命令并检查结果 - 使用较短超时时间启动任务
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 60, "inference")
     
     if failed_hosts and len(failed_hosts) > 0:
-        logger.error(f"❌ 推理命令在以下主机上执行失败: {list(failed_hosts.keys())}")
+        logger.error(f"❌ 推理命令在以下主机上启动失败: {list(failed_hosts.keys())}")
         return False  # 返回失败状态
     else:
         logger.info("✅ 推理命令在所有主机上成功启动")
@@ -769,28 +769,49 @@ def main(config, custom_docker_cmd=None):
         max_wait_time = 3600  # 1小时最大等待时间
         start_wait_time = time.time()
         
-        # 等待推理任务完成的循环
+        # 等待推理任务完成的循环 - 异步检查机制
+        logger.info("🔍 开始异步检查推理任务状态...")
+        check_interval = 30  # 检查间隔30秒
+        
         while time.time() - start_wait_time < max_wait_time:
-            # 检查容器是否还在运行推理任务
-            check_cmd = f"docker exec {container_name} bash -c \"ps aux | grep run_inference.py | grep -v grep || echo 'no_process'\""
-            result = CLUSTER_MGR.run_command_some_hosts(check_cmd, nnodes, 30)
-            
-            # 检查是否所有主机都没有推理进程
-            all_finished = True
-            if len(result) == 0:  # 命令执行成功，检查输出
-                # 这里需要更仔细的检查，简化为时间等待
-                logger.debug("正在检查推理进程状态...")
-                # 检查日志文件是否生成完成
-                log_check_cmd = f"docker exec {container_name} bash -c \"test -f {curr_log_path}/container.out.log && grep -q 'Finish Info' {curr_log_path}/container.out.log && echo 'finished' || echo 'running'\""
-                log_result = CLUSTER_MGR.run_command_some_hosts(log_check_cmd, nnodes, 30)
-                if len(log_result) == 0:
-                    logger.info("✅ 推理任务完成，检测到完成标志")
-                    break
-            
             elapsed_time = int(time.time() - start_wait_time)
+            
+            # 方法1: 检查推理进程是否还在运行
+            process_check_cmd = f"docker exec {container_name} bash -c \"pgrep -f 'run_inference.py' > /dev/null && echo 'running' || echo 'stopped'\""
+            process_result = CLUSTER_MGR.run_command_some_hosts(process_check_cmd, nnodes, 15)
+            
+            # 方法2: 检查日志文件是否包含完成标志
+            log_check_cmd = f"docker exec {container_name} bash -c \"test -f {curr_log_path}/container.out.log && grep -q 'Finish Info' {curr_log_path}/container.out.log && echo 'finished' || echo 'not_finished'\""
+            log_result = CLUSTER_MGR.run_command_some_hosts(log_check_cmd, nnodes, 15)
+            
+            # 判断任务是否完成
+            task_finished = False
+            
+            # 如果日志检查成功且发现完成标志
+            if len(log_result) == 0:
+                logger.info("✅ 推理任务完成，在日志中检测到完成标志")
+                task_finished = True
+            # 如果进程检查成功且进程已停止
+            elif len(process_result) == 0:
+                logger.info("✅ 推理进程已停止，任务可能完成")
+                # 再次检查日志文件是否存在
+                log_exist_cmd = f"docker exec {container_name} bash -c \"test -f {curr_log_path}/container.out.log && echo 'exists' || echo 'not_exists'\""
+                log_exist_result = CLUSTER_MGR.run_command_some_hosts(log_exist_cmd, nnodes, 15)
+                if len(log_exist_result) == 0:
+                    logger.info("📄 日志文件已生成，推理任务执行完成")
+                    task_finished = True
+                else:
+                    logger.warning("⚠️  推理进程已停止但日志文件未生成，可能执行失败")
+                    task_finished = True  # 仍然视为完成，但可能失败
+            
+            if task_finished:
+                break
+            
+            # 报告进度
             if elapsed_time % 60 == 0 or elapsed_time < 120:  # 前2分钟每30秒报告一次，之后每分钟报告一次
                 logger.info(f"🔄 推理任务仍在运行中，已等待 {elapsed_time} 秒...")
-            time.sleep(30)
+            
+            time.sleep(check_interval)
         
         if time.time() - start_wait_time >= max_wait_time:
             logger.warning("⚠️  推理任务等待超时，继续进行清理工作")
