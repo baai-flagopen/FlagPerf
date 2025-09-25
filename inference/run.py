@@ -425,7 +425,7 @@ def start_tasks_in_cluster(dp_path, container_name, case_config, curr_log_path,
     logger.info(f"Inference main command for case: {case_config['model']}")
     
     # 执行命令并检查结果
-    failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 15, "inference")
+    failed_hosts = CLUSTER_MGR.run_command_some_hosts_distribution_info(start_cmd, nnodes, 1800, "inference")
     
     if failed_hosts and len(failed_hosts) > 0:
         logger.error(f"Inference command execution failed on hosts: {list(failed_hosts.keys())}")
@@ -595,6 +595,10 @@ def compilation_result(case_log_path, config):
                                      config.VENDOR + "_monitor.log")
 
     case_perf = None
+    if not os.path.exists(case_perf_path):
+        logger.error(f"Log file not found: {case_perf_path}")
+        logger.error("Inference task may have failed. Check container logs for details.")
+        return
     case_file = open(case_perf_path)
 
     for line in case_file.readlines():
@@ -779,7 +783,7 @@ def main(config, custom_docker_cmd=None):
         # Note: 推理任务通常较快完成，使用简单的等待策略
         logger.info("   Inference tasks are typically fast, waiting for completion...")
         time.sleep(30)  # 给推理任务一些时间完成
-        logger.info("   Basic wait completed. Check logs for detailed results.")
+        logger.info("   Basic waitcompleted. Check logs for detailed results.")
         
         logger.info("4) Inference tasks completed in the cluster...")
         logger.info("5) Clean container environments in cluster...")
