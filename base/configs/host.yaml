@@ -7,7 +7,8 @@ FLAGPERF_LOG_LEVEL: "info"
 # toolkits using container_main to launch bash toolkits/<case>/<vendor>/main.sh, nnodes.
 # only in benchmarks, flagperf will automatically execute benchmakrs/<case>/<vendor>/requirements.txt and env.sh
 # all resources to be used in toolkits/<case>/<vendor>/main.sh, should be under toolkits/<case>/<vendor>/
-BENCHMARKS_OR_TOOLKITS: "BENCHMARK"
+#BENCHMARKS_OR_TOOLKITS: "BENCHMARK"
+BENCHMARKS_OR_TOOLKITS: "TOOLKITS"
 HOSTS: ["127.0.0.1"]
 NPROC_PER_NODE: 8
 SSH_PORT: "22"
@@ -33,7 +34,7 @@ M: 4096
 N: 4096
 K: 4096
 WARMUP: 100
-ITERS: 10000
+ITERS: 50000
 DIST_BACKEND: "nccl"
 
 
