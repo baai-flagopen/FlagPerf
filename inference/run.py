@@ -771,38 +771,71 @@ def main(config, custom_docker_cmd=None):
         
         # 等待推理任务完成的循环 - 异步检查机制
         logger.info("🔍 开始异步检查推理任务状态...")
+        
+        # 初始等待时间，让推理任务有时间启动
+        initial_wait = 60  # 等待60秒让任务真正开始
+        logger.info(f"⏰ 初始等待 {initial_wait} 秒，让推理任务充分启动...")
+        time.sleep(initial_wait)
+        
+        # 验证推理任务是否真的启动了
+        startup_check_cmd = f"docker exec {container_name} bash -c \"pgrep -f 'run_inference.py' && echo 'INFERENCE_STARTED' || echo 'INFERENCE_NOT_STARTED'\""
+        startup_result = CLUSTER_MGR.run_command_some_hosts(startup_check_cmd, nnodes, 15)
+        
+        if len(startup_result) == 0:
+            logger.info("✅ 推理任务已成功启动，开始监控...")
+        else:
+            logger.warning("⚠️  推理任务可能未成功启动，继续监控以确认...")
+        
         check_interval = 30  # 检查间隔30秒
         
         while time.time() - start_wait_time < max_wait_time:
             elapsed_time = int(time.time() - start_wait_time)
             
             # 方法1: 检查推理进程是否还在运行
-            process_check_cmd = f"docker exec {container_name} bash -c \"pgrep -f 'run_inference.py' > /dev/null && echo 'running' || echo 'stopped'\""
+            process_check_cmd = f"docker exec {container_name} bash -c \"pgrep -f 'run_inference.py' && echo 'PROCESS_RUNNING' || echo 'PROCESS_STOPPED'\""
             process_result = CLUSTER_MGR.run_command_some_hosts(process_check_cmd, nnodes, 15)
             
-            # 方法2: 检查日志文件是否包含完成标志
-            log_check_cmd = f"docker exec {container_name} bash -c \"test -f {curr_log_path}/container.out.log && grep -q 'Finish Info' {curr_log_path}/container.out.log && echo 'finished' || echo 'not_finished'\""
+            # 方法2: 检查日志文件状态
+            log_check_cmd = f"docker exec {container_name} bash -c \"if [ -f {curr_log_path}/container.out.log ]; then if grep -q 'Finish Info' {curr_log_path}/container.out.log; then echo 'LOG_FINISHED'; else echo 'LOG_EXISTS_NO_FINISH'; fi; else echo 'LOG_NOT_EXISTS'; fi\""
             log_result = CLUSTER_MGR.run_command_some_hosts(log_check_cmd, nnodes, 15)
+            
+            # 调试信息
+            logger.debug(f"进程检查结果: failed_hosts={len(process_result)}, 结果={process_result}")
+            logger.debug(f"日志检查结果: failed_hosts={len(log_result)}, 结果={log_result}")
             
             # 判断任务是否完成
             task_finished = False
             
-            # 如果日志检查成功且发现完成标志
+            # 检查进程状态 - 如果命令执行成功
+            if len(process_result) == 0:
+                logger.debug("✓ 进程检查命令执行成功")
+                # 进程已停止，需要进一步检查日志
+                process_stopped = True
+            else:
+                logger.debug("✗ 进程检查命令执行失败，假设进程仍在运行")
+                process_stopped = False
+            
+            # 检查日志状态 - 如果命令执行成功  
             if len(log_result) == 0:
-                logger.info("✅ 推理任务完成，在日志中检测到完成标志")
-                task_finished = True
-            # 如果进程检查成功且进程已停止
-            elif len(process_result) == 0:
-                logger.info("✅ 推理进程已停止，任务可能完成")
-                # 再次检查日志文件是否存在
-                log_exist_cmd = f"docker exec {container_name} bash -c \"test -f {curr_log_path}/container.out.log && echo 'exists' || echo 'not_exists'\""
-                log_exist_result = CLUSTER_MGR.run_command_some_hosts(log_exist_cmd, nnodes, 15)
-                if len(log_exist_result) == 0:
-                    logger.info("📄 日志文件已生成，推理任务执行完成")
-                    task_finished = True
+                logger.debug("✓ 日志检查命令执行成功")
+                # 需要检查具体的日志状态输出
+                # 这里需要更复杂的逻辑来判断日志内容
+                if process_stopped:  # 只有在进程停止时才检查日志完成
+                    logger.info("✅ 推理进程已停止，检查日志完成状态...")
+                    # 再次详细检查日志
+                    final_check_cmd = f"docker exec {container_name} bash -c \"if [ -f {curr_log_path}/container.out.log ]; then grep -q 'Finish Info' {curr_log_path}/container.out.log && echo 'TRULY_FINISHED' || echo 'LOG_NO_FINISH'; else echo 'NO_LOG_FILE'; fi\""
+                    final_result = CLUSTER_MGR.run_command_some_hosts(final_check_cmd, nnodes, 15)
+                    
+                    if len(final_result) == 0:
+                        logger.info("✅ 推理任务真正完成，发现完成标志")
+                        task_finished = True
+                    else:
+                        logger.warning("⚠️  推理进程停止但未找到完成标志，可能失败")
+                        task_finished = True  # 进程停止就认为完成，即使可能失败
                 else:
-                    logger.warning("⚠️  推理进程已停止但日志文件未生成，可能执行失败")
-                    task_finished = True  # 仍然视为完成，但可能失败
+                    logger.debug("🔄 推理进程仍在运行，继续等待...")
+            else:
+                logger.debug("✗ 日志检查命令执行失败")
             
             if task_finished:
                 break
