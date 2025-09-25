@@ -1,9 +1,13 @@
 FROM nvcr.io/nvidia/pytorch:23.12-py3
 RUN apt-get update --allow-unauthenticated && \
-    apt-get install -y --allow-unauthenticated openssh-server && \
+    apt-get install -y --allow-unauthenticated openssh-server wget && \
     mkdir /var/run/sshd && \
     echo 'root:password' | chpasswd && \
     mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+# Install yq for YAML processing in shell scripts
+RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && \
+    chmod +x /usr/local/bin/yq
 
 RUN pip3 install loguru schedule
 
