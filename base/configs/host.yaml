@@ -34,12 +34,12 @@ N: 4096
 K: 4096
 WARMUP: 100
 ITERS: 10000
-DIST_BACKEND: "mpi"
+DIST_BACKEND: "nccl"
 
 
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
-CASES: 
-  "computation-FP64": "pytorch_2.3"
+CASES:
+  "computation-FP16": "pytorch_2.3"
 # nvidia "computation-FP64": "pytorch_2.3"
 # nvidia "computation-FP32": "pytorch_2.3"
 # nvidia "computation-TF32": "pytorch_2.3"

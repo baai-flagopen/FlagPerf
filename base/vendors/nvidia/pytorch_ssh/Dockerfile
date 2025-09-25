@@ -1,9 +1,11 @@
 FROM nvcr.io/nvidia/pytorch:23.12-py3
-RUN apt-get update && \
-    apt-get install -y openssh-server && \
+RUN apt-get update --allow-unauthenticated && \
+    apt-get install -y --allow-unauthenticated openssh-server && \
     mkdir /var/run/sshd && \
     echo 'root:password' | chpasswd && \
     mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+RUN pip3 install loguru schedule
 
 COPY id_rsa.pub /root/.ssh/authorized_keys
 COPY id_rsa /root/.ssh/id_rsa
