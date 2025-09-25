@@ -191,7 +191,7 @@ def prepare_running_env(dp_path, container_name, case_config):
     prepare_cmd = "cd " + dp_path + " && " + sys.executable \
                   + " ../utils/container_manager.py -o runcmdin -c " \
                   + container_name + " -t 1800 -r \"python3 " \
-                  + config.FLAGPERF_PATH + "/" \
+                  + config.FLAGPERF_PATH \
                   + "/tools/prepare_in_container.py --framework " \
                   + framework + " --model " + model + " --vendor " \
                   + config.VENDOR + " --pipsource " + config.PIP_SOURCE + "\""
