@@ -16,14 +16,14 @@ RUN mkdir -p $FLAGGEMS_WORK_DIR
 RUN pip3 install --upgrade triton
 
 # 升级pytest到最新版本
-RUN pip3 install --upgrade pytest
+# RUN pip3 install --upgrade pytest
 
 # 克隆并安装FlagGems
-WORKDIR $FLAGGEMS_WORK_DIR
-RUN git clone https://github.com/FlagOpen/FlagGems.git
-WORKDIR $FLAGGEMS_WORK_DIR/FlagGems
+# WORKDIR $FLAGGEMS_WORK_DIR
+# RUN git clone https://github.com/FlagOpen/FlagGems.git
+# WORKDIR $FLAGGEMS_WORK_DIR/FlagGems
 
-RUN pip3 install -e .
+# RUN pip3 install -e .
 
 # 设置工作目录回到根目录
 WORKDIR /
