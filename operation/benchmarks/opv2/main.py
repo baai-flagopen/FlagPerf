@@ -152,11 +152,6 @@ if __name__ == "__main__":
         print("=== Arguments parsed successfully ===")
         print(f"Arguments received: {config}")
         
-        # Always enable FlagGems in opv2 framework
-        import flag_gems
-        flag_gems.enable()
-        print("Using FlagGems (default for opv2 framework)")
-        
         print("=== Calling main function ===")
         main(config)
         print("=== Program completed successfully ===")
