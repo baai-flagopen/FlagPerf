@@ -381,7 +381,7 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
                 + container_name + " -f " + pid_file_path
     
     # 设置较长的超时时间，避免训练过程中的长时间操作（如 evaluation、checkpoint 保存）导致误判进程已死
-    check_timeout = 20
+    check_timeout = 60
 
     RUN_LOGGER.debug(
         "Run cmd to check whether the training tasks is running: " + check_cmd)
