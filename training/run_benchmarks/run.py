@@ -381,15 +381,14 @@ def wait_for_finish(dp_path, container_name, pid_file_path, nnodes):
                 + container_name + " -f " + pid_file_path
     
     # 设置较长的超时时间，避免训练过程中的长时间操作（如 evaluation、checkpoint 保存）导致误判进程已死
-    check_timeout = 60
 
     RUN_LOGGER.debug(
         "Run cmd to check whether the training tasks is running: " + check_cmd)
     while True:
         bad_hosts = CLUSTER_MGR.run_command_some_hosts(check_cmd,
                                                        nnodes,
-                                                       timeout=check_timeout,
                                                        no_log=True)
+
         if len(bad_hosts) == nnodes:
             RUN_LOGGER.info("All training processes have finished.")
             break
