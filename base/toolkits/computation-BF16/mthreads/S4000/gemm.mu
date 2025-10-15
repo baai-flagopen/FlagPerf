@@ -46,7 +46,7 @@ using qint8 = int8_t;
 #define SHOW printf
 
 struct MatMulParam {
-    bool split_k{ false };
+    bool deterministic{ false };
     bool trans_a{ false };
     bool trans_b{ false };
     int batch{ 1 };
@@ -155,7 +155,7 @@ public:
                 CHECK_ERR(DType_Not_Suppoted);
                 break;
         }
-        split_k = _param.split_k;
+        deterministic = _param.deterministic;
         trans_a = _param.trans_a;
         trans_b = _param.trans_b;
         batch = _param.batch;
@@ -306,7 +306,7 @@ private:
     DType dtype = DType::f32;
     std::string dtype_str = "float32";
     size_t dtype_size = 4;
-    bool split_k = false;
+    bool deterministic = false;
     bool trans_a = false;
     bool trans_b = false;
     int batch = 1;
@@ -588,7 +588,7 @@ private:
 
 
         op.SetTranspose(trans_a, trans_b);
-        op.SetSplitK(split_k);
+        op.SetDeterministic(deterministic);
         op.SetAlpha(alpha);
         op.SetBeta(beta);
         op.SetGamma(gamma);
