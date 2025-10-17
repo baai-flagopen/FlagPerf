@@ -1,2 +1,5 @@
-mcc bandwidth.mu -o bdtest -lmusart --offload-arch=mp_31
+mcc bandwidth_test.mu -o bdtest -lmusart --offload-arch=mp_31
 ./bdtest
+#./bdtest read
+#./bdtest write
+

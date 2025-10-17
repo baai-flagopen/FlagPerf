@@ -1,17 +1,30 @@
-FLAGPERF_PATH: "/home/secure/FlagPerf/base"
+FLAGPERF_PATH: "/home/secure/mt_new/FlagPerf/base"
 FLAGPERF_LOG_PATH: "result"
-VENDOR: "ascend"
+VENDOR: "mthreads"
 FLAGPERF_LOG_LEVEL: "info"
-BENCHMARKS_OR_TOOLKITS: "TOOLKIT"
-HOSTS: ["10.1.15.62"]
-NPROC_PER_NODE: 16
+BENCHMARKS_OR_TOOLKITS: "BENCHMARK"
+HOSTS: ["10.8.192.17"]
+NPROC_PER_NODE: 8
 SSH_PORT: "22"
 HOSTS_PORTS: ["2222"]
 MASTER_PORT: "29501"
 SHM_SIZE: "32G"
-ACCE_CONTAINER_OPT: " --pid=host --device=/dev/davinci0 --device=/dev/davinci1 --device=/dev/davinci2 --device=/dev/davinci3 --device=/dev/davinci4 --device=/dev/davinci5 --device=/dev/davinci6 --device=/dev/davinci7 --device=/dev/davinci8 --device=/dev/davinci9 --device=/dev/davinci10 --device=/dev/davinci11 --device=/dev/davinci12 --device=/dev/davinci13 --device=/dev/davinci14 --device=/dev/davinci15 --device=/dev/davinci_manager --device=/dev/devmm_svm --device=/dev/hisi_hdc -v /usr/local/Ascend/driver:/usr/local/Ascend/driver -v/usr/local/Ascend/add-ons/:/usr/local/Ascend/add-ons/ -v /usr/local/sbin/npu-smi:/usr/local/sbin/npu-smi -v /usr/local/sbin/:/usr/local/sbin/ -v /var/log/npu/conf/slog/slog.conf:/var/log/npu/conf/slog/slog.conf -v /var/log/npu/slog/:/var/log/npu/slog -v /var/log/npu/profiling/:/var/log/npu/profiling -v /var/log/npu/dump/:/var/log/npu/dump -v /var/log/npu/:/usr/slog -v /home/hwtest/:/home/hwtest -v /etc/hosts/:/etc/hosts "
+ACCE_CONTAINER_OPT: " --env MTHREADS_VISIBLE_DEVICES=all "
 PIP_SOURCE: "https://mirror.baidu.com/pypi/simple"
 CLEAR_CACHES: True
-ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
-CASES:
-  "computation-BF16:A3": "pytorch_2.1"
+ACCE_VISIBLE_DEVICE_ENV_NAME: "MUSA_VISIBLE_DEVICES"
+CASES: 
+# mthreads "computation-TF32:S5000": "pytorch_2.2"
+    "computation-FP16:S5000": "pytorch_2.2"
+# mthreads "computation-BF16:S5000": "pytorch_2.2"
+# mthreads "computation-FP8:S5000": "pytorch_2.2"
+# mthreads "computation-INT8:S5000": "pytorch_2.2"
+# mthreads "main_memory-bandwidth:S5000": "pytorch_2.2"
+# mthreads "main_memory-capacity:S5000": "pytorch_2.2"
+# mthreads "interconnect-h2d:S5000": "pytorch_2.2"
+# mthreads "interconnect-MPI_intraserver:S5000": "pytorch_2.2"
+# mthreads "interconnect-P2P_intraserver:S5000": "pytorch_2.2"
+# mthreads "interconnect-P2P_interserver:S5000": "pytorch_ssh"
+# mthreads "interconnect-MPI_interserver:S5000": "pytorch_ssh" 
+# mthreads "computation-TF32:S4000": "pytorch_2.2"
+# mthreads "computation-FP16:S4000": "pytorch_2.2"
