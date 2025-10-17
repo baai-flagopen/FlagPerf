@@ -8,7 +8,7 @@
 #define GB (1024ULL * 1024ULL * 1024ULL)
 #define SIZE (20ULL * GB)
 #define WARMUP_ITERATIONS 1
-#define ITERATIONS 50
+#define ITERATIONS 2400
 
 void checkMusaError(musaError_t err, const char* msg) {
     if (err != musaSuccess) {

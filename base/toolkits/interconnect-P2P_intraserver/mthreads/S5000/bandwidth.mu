@@ -5,7 +5,7 @@
 
 #define SIZE (1024ULL * 1024ULL * 1024ULL * sizeof(float))
 #define WARMUP_ITERATIONS 1
-#define ITERATIONS 50
+#define ITERATIONS 3200
 
 void checkMusaError(musaError_t err, const char* msg) {
     if (err != musaSuccess) {
