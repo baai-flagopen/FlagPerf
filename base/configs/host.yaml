@@ -24,4 +24,4 @@ DIST_BACKEND: "nccl"
 
 ACCE_VISIBLE_DEVICE_ENV_NAME: "CUDA_VISIBLE_DEVICES"
 CASES:
-  nvidia computation-FP32: "pytorch_2.3"
+  nvidia:"computation-FP32": "pytorch_2.3"
