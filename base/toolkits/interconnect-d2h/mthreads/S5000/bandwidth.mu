@@ -1,0 +1,53 @@
+#include <stdio.h>
+#include <musa_runtime.h>
+
+#define GB (1024ULL * 1024ULL * 1024ULL)
+#define SIZE (16ULL * GB)
+#define WARMUP_ITERATIONS 1
+#define ITERATIONS 100
+
+void checkMusaError(musaError_t err, const char* msg) {
+    if (err != musaSuccess) {
+        fprintf(stderr, "MUSA Error: %s: %s\n", msg, musaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+}
+
+int main() {
+    float* d_src, * d_dst;
+    musaEvent_t start, end;
+    float elapsed_time;
+
+    checkMusaError(musaMalloc(&d_src, SIZE), "musaMalloc");
+    checkMusaError(musaMallocHost(&d_dst, SIZE), "musaMallocHost");
+
+    checkMusaError(musaEventCreate(&start), "musaEventCreate");
+    checkMusaError(musaEventCreate(&end), "musaEventCreate");
+
+    for (int i = 0; i < WARMUP_ITERATIONS; ++i) {
+        checkMusaError(musaMemcpy(d_dst, d_src, SIZE, musaMemcpyDeviceToHost), "musaMemcpy");
+    }
+
+    checkMusaError(musaEventRecord(start), "musaEventRecord");
+
+    for (int i = 0; i < ITERATIONS; ++i) {
+        checkMusaError(musaMemcpy(d_dst, d_src, SIZE, musaMemcpyDeviceToHost), "musaMemcpy");
+    }
+
+    checkMusaError(musaEventRecord(end), "musaEventRecord");
+    checkMusaError(musaEventSynchronize(end), "musaEventSynchronize");
+
+    checkMusaError(musaEventElapsedTime(&elapsed_time, start, end), "musaEventElapsedTime");
+
+    double bandwidth = SIZE * ITERATIONS / (elapsed_time / 1000.0);
+
+    printf("[FlagPerf Result]transfer-bandwidth=%.2fGiB/s\n", bandwidth / (1024.0 * 1024.0 * 1024.0));
+    printf("[FlagPerf Result]transfer-bandwidth=%.2fGB/s\n", bandwidth / (1000.0 * 1000.0 * 1000.0));
+
+    checkMusaError(musaFreeHost(d_dst), "musaFreeHost");
+    checkMusaError(musaFree(d_src), "musaFree");
+    checkMusaError(musaEventDestroy(start), "musaEventDestroy");
+    checkMusaError(musaEventDestroy(end), "musaEventDestroy");
+
+    return 0;
+}

@@ -1,0 +1,1 @@
+FROM sh-harbor.mthreads.com/mt-ai/musa-pytorch-debian-py310:v2.0.0-ph1-v0.9

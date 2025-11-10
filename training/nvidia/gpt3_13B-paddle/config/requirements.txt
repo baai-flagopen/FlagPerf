@@ -1,1 +1,2 @@
-../../gpt3_6.7B-paddle/config/requirements.txt
+regex
+tool_helpers

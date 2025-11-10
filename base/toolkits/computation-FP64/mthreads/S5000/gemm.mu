@@ -94,7 +94,7 @@ void test(const PrecisionConfig &config)
 
 int main()
 {
-  musaSetDevice(2);
+  musaSetDevice(0);
   PrecisionConfig fp64 = {sizeof(double), "FP64", 600, 10};
 
   test(fp64);
